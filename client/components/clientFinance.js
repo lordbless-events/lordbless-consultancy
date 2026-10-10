@@ -920,6 +920,21 @@
         ? data.paymentRequests
         : getGlobalPaymentRequests();
 
+        const assessmentPayment = data.assessmentPayment || null;
+        const filteredPaymentRequests = Array.isArray(paymentRequests)
+            ? paymentRequests.filter(request => !(
+                assessmentPayment &&
+                request &&
+                request.purpose === "initial_assessment_consultation" &&
+                String(request.clientId || request.client_id || "") === String(clientId)
+                || data.assessmentPaymentLoaded && request?.purpose === "initial_assessment_consultation"
+            ))
+            : [];
+        if (
+            assessmentPayment &&
+            String(assessmentPayment.clientId || assessmentPayment.client_id || "") === String(clientId)
+        ) filteredPaymentRequests.push(assessmentPayment);
+
 
         const payments =
             Array.isArray(
@@ -946,7 +961,7 @@
 
         const clientRequests =
             filterClientRecords(
-                paymentRequests,
+                filteredPaymentRequests,
                 clientId
             )
                 .map(
@@ -1269,6 +1284,17 @@
                                     </p>
                                 ` : ""}
 
+                                ${isInitialAssessment && request.paymentInstructions ? `
+                                    <div class="lbc-client-finance-payment-instructions">
+                                        <strong>Payment instructions</strong>
+                                        <p>${escapeHTML(request.paymentInstructions)}</p>
+                                    </div>
+                                ` : isInitialAssessment && request.databaseAssessment ? `
+                                    <p class="lbc-client-finance-verification-message">
+                                        Payment instructions are being prepared by Finance. Please wait for the approved instructions before making payment.
+                                    </p>
+                                ` : ""}
+
                             </div>
 
 
@@ -1291,7 +1317,26 @@
 
                             </div>
 
-                            ${isInitialAssessment && !isAwaitingVerification ? `
+                            ${isInitialAssessment && !isAwaitingVerification && request.databaseAssessment && request.paymentInstructions ? `
+                                <div class="lbc-client-finance-payment-submission">
+                                    <label>
+                                        Payment date
+                                        <input type="date" data-payment-date required>
+                                    </label>
+                                    <label>
+                                        Transaction reference
+                                        <input type="text" data-payment-reference maxlength="160" required>
+                                    </label>
+                                    <button
+                                        type="button"
+                                        class="lbc-client-finance-submit-payment"
+                                        data-finance-action="submit-payment"
+                                        data-payment-request-id="${escapeHTML(request.id || "")}"
+                                    >
+                                        I HAVE MADE THIS PAYMENT
+                                    </button>
+                                </div>
+                            ` : isInitialAssessment && !isAwaitingVerification && !request.databaseAssessment ? `
                                 <button
                                     type="button"
                                     class="lbc-client-finance-submit-payment"
@@ -2428,11 +2473,62 @@ function bindEvents(
     container
         .querySelectorAll('[data-finance-action="submit-payment"]')
         .forEach(button => {
-            button.addEventListener("click", () => {
+            button.addEventListener("click", async () => {
                 const requestId = button.dataset.paymentRequestId;
                 const request = state.paymentRequests.find(
                     item => item.id === requestId
                 );
+                if (request?.databaseAssessment) {
+                    const card = button.closest(".lbc-client-finance-request");
+                    const paymentDate = card?.querySelector("[data-payment-date]")?.value;
+                    const transactionReference = card?.querySelector("[data-payment-reference]")?.value?.trim();
+                    if (!paymentDate || !transactionReference) {
+                        showMessage("Enter the payment date and transaction reference.", true);
+                        return;
+                    }
+
+                    button.disabled = true;
+                    const { data, error } = await lordblessSupabase.rpc(
+                        "submit_initial_assessment_payment",
+                        {
+                            p_payment_id: request.id,
+                            p_payment_date: paymentDate,
+                            p_transaction_reference: transactionReference
+                        }
+                    );
+                    if (error) {
+                        button.disabled = false;
+                        showMessage(error.message || "Your payment submission could not be saved.", true);
+                        return;
+                    }
+
+                    const submittedPayment = data?.id ? data : data?.payment;
+                    if (!submittedPayment) {
+                        button.disabled = false;
+                        showMessage("The payment submission response was incomplete. Refresh and check its status.", true);
+                        return;
+                    }
+
+                    const updatedRequest = {
+                        ...request,
+                        ...submittedPayment,
+                        clientId: submittedPayment.client_id,
+                        verificationStatus: submittedPayment.verification_status,
+                        clientPaymentSubmittedAt: submittedPayment.client_payment_submitted_at,
+                        databaseAssessment: true
+                    };
+                    window.dispatchEvent(new CustomEvent("lordbless:assessment-payment-updated", {
+                        detail: { payment: submittedPayment }
+                    }));
+                    showMessage("Your payment details were sent to Finance for verification.");
+                    render(state.container, {
+                        ...state,
+                        paymentRequests: state.paymentRequests.map(item =>
+                            item.id === requestId ? updatedRequest : item
+                        )
+                    });
+                    return;
+                }
                 const clientId = getClientId(state.client);
                 const bridge = window.LORDBLESS_PAYMENT_BRIDGE;
                 const latestRequest =

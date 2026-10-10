@@ -1111,6 +1111,11 @@ function setupFinanceNavigation() {
 ========================================= */
 
 let LORDBLESS_FINANCE_ACTIVE_VIEW = "overview";
+let LORDBLESS_ASSESSMENT_FINANCE_REQUESTS = [];
+let LORDBLESS_ASSESSMENT_FINANCE_LOADED = false;
+let LORDBLESS_ASSESSMENT_FINANCE_LOADED_AT = 0;
+let LORDBLESS_ASSESSMENT_FINANCE_LOADING = false;
+let LORDBLESS_ASSESSMENT_FINANCE_ERROR = "";
 
 
 function getFinancePaymentRequests() {
@@ -1133,6 +1138,45 @@ function getFinancePaymentRequests() {
         ? window.LORDBLESS_PAYMENT_REQUESTS
         : [];
 
+}
+
+
+function loadAdminAssessmentFinanceRequests() {
+    if (LORDBLESS_ASSESSMENT_FINANCE_LOADING) return;
+    if (
+        LORDBLESS_ASSESSMENT_FINANCE_LOADED &&
+        Date.now() - LORDBLESS_ASSESSMENT_FINANCE_LOADED_AT < 10000
+    ) return;
+    LORDBLESS_ASSESSMENT_FINANCE_LOADED = false;
+    LORDBLESS_ASSESSMENT_FINANCE_LOADING = true;
+
+    lordblessSupabase
+        .from("client_assessment_payments")
+        .select("id, client_id, client_name, reference, amount, currency, purpose, status, verification_status, client_payment_submitted_at, client_payment_date, client_payment_reference, created_at")
+        .in("status", ["requested", "awaiting_verification"])
+        .order("created_at", { ascending: true })
+        .then(({ data, error }) => {
+            LORDBLESS_ASSESSMENT_FINANCE_ERROR = error?.message || "";
+            LORDBLESS_ASSESSMENT_FINANCE_REQUESTS = (data || []).map(item => ({
+                ...item,
+                clientId: item.client_id,
+                clientName: item.client_name,
+                verificationStatus: item.verification_status,
+                databaseAssessment: true
+            }));
+            LORDBLESS_ASSESSMENT_FINANCE_LOADED = true;
+        })
+        .catch(error => {
+            LORDBLESS_ASSESSMENT_FINANCE_ERROR = error?.message || "Assessment payment requests could not be loaded.";
+            LORDBLESS_ASSESSMENT_FINANCE_LOADED = true;
+        })
+        .finally(() => {
+            LORDBLESS_ASSESSMENT_FINANCE_LOADING = false;
+            LORDBLESS_ASSESSMENT_FINANCE_LOADED_AT = Date.now();
+            if (LORDBLESS_FINANCE_ACTIVE_VIEW === "verification") {
+                renderFinanceView("verification");
+            }
+        });
 }
 
 
@@ -1918,9 +1962,17 @@ function renderFinanceView(
 
         case "verification": {
 
-            const requests =
-                getFinancePaymentRequests()
-                    .filter(
+            loadAdminAssessmentFinanceRequests();
+            const localRequests = getFinancePaymentRequests();
+            const databaseClientIds = new Set(
+                LORDBLESS_ASSESSMENT_FINANCE_REQUESTS.map(request => request.clientId)
+            );
+            const requests = [
+                ...localRequests.filter(request =>
+                    !(request?.purpose === "initial_assessment_consultation" && databaseClientIds.has(request.clientId))
+                ),
+                ...LORDBLESS_ASSESSMENT_FINANCE_REQUESTS
+            ].filter(
                         request =>
                             request &&
                             request.status !==
@@ -1955,6 +2007,13 @@ function renderFinanceView(
                     </div>
 
 
+                    ${LORDBLESS_ASSESSMENT_FINANCE_ERROR
+                        ? `<p class="section-description" role="alert">Persistent assessment payments are unavailable: ${escapeHTML(LORDBLESS_ASSESSMENT_FINANCE_ERROR)}</p>`
+                        : LORDBLESS_ASSESSMENT_FINANCE_LOADING
+                            ? `<p class="section-description">Loading persistent assessment payment requests…</p>`
+                            : ""}
+
+
                     ${
                         requests.length
                             ? `
@@ -1970,6 +2029,7 @@ function renderFinanceView(
                                                     <th>Reference</th>
                                                     <th>Client</th>
                                                     <th>Journey</th>
+                                                    <th>Client payment report</th>
                                                     <th>Amount</th>
                                                     <th>Status</th>
                                                     <th>Action</th>
@@ -2008,6 +2068,12 @@ function renderFinanceView(
                                                                             request.enquiryReference ||
                                                                             "Journey"
                                                                 )}
+                                                            </td>
+
+                                                            <td>
+                                                                ${request.client_payment_reference
+                                                                    ? `<span>${escapeHTML(request.client_payment_date || "Date not supplied")}</span><br><small>${escapeHTML(request.client_payment_reference)}</small>`
+                                                                    : "—"}
                                                             </td>
 
                                                             <td>
@@ -2088,6 +2154,7 @@ function renderFinanceView(
                                 const requestId =
                                     button.dataset
                                         .financeVerify;
+                                const selectedRequest = requests.find(request => request.id === requestId);
 
                                 if (
                                     window
@@ -2102,10 +2169,15 @@ function renderFinanceView(
                                         .LORDBLESS_PAYMENT_VERIFICATION
                                         .render(
                                             container,
-                                            requestId,
+                                            selectedRequest?.databaseAssessment
+                                                ? selectedRequest
+                                                : requestId,
                                             {
                                                 onClose:
                                                     function () {
+                                                        LORDBLESS_ASSESSMENT_FINANCE_LOADED = false;
+                                                        LORDBLESS_ASSESSMENT_FINANCE_LOADED_AT = 0;
+                                                        LORDBLESS_ASSESSMENT_FINANCE_REQUESTS = [];
                                                         renderFinanceView(
                                                             "verification"
                                                         );
@@ -7262,9 +7334,18 @@ function renderAdminEnquiryClientView(enquiry, portalState) {
             enquiry,
             client: enquiry.client || {},
             clientId: getEnquiryClientId(enquiry),
-            portalState: portalState || {}
+            portalState: portalState || {},
+            canReadAssessment: hasPermission(getCurrentUser(), "finance.read"),
+            canCreateAssessment: hasPermission(getCurrentUser(), "finance.requests"),
+            canScheduleConsultation: hasPermission(getCurrentUser(), "consultations.manage"),
+            assessmentPayment: portalState?.assessmentPayment || null,
+            consultationMeeting: portalState?.consultationMeeting || null,
+            consultationEmail: portalState?.consultationEmail || null,
+            assessmentError: portalState?.assessmentError || ""
         }
     );
+
+    bindAdminAssessmentActions(enquiry, portalState || {});
 
     const createButton = modalContent.querySelector(
         '[data-client-portal-action="create"]'
@@ -7297,6 +7378,7 @@ function renderAdminEnquiryClientView(enquiry, portalState) {
                     : "The Client Portal invitation was created.";
 
             renderAdminEnquiryClientView(enquiry, {
+                ...portalState,
                 account: portalAccount,
                 canCreate: false,
                 canResend: Boolean(
@@ -7348,6 +7430,7 @@ function renderAdminEnquiryClientView(enquiry, portalState) {
             ) return;
 
             renderAdminEnquiryClientView(enquiry, {
+                ...portalState,
                 account: portalAccount,
                 canCreate: false,
                 canResend: Boolean(
@@ -7371,6 +7454,202 @@ function renderAdminEnquiryClientView(enquiry, portalState) {
             resendButton.disabled = false;
             resendButton.textContent = "RESEND INVITATION";
         }
+    });
+}
+
+
+async function loadAdminAssessmentState(clientId) {
+    const result = {
+        assessmentPayment: null,
+        consultationMeeting: null,
+        consultationEmail: null,
+        assessmentError: ""
+    };
+    if (!hasPermission(getCurrentUser(), "finance.read")) return result;
+
+    const { data: payment, error: paymentError } = await lordblessSupabase
+        .from("client_assessment_payments")
+        .select("*")
+        .eq("client_id", clientId)
+        .maybeSingle();
+    if (paymentError) {
+        result.assessmentError = paymentError.message || "Assessment payment data is unavailable.";
+        return result;
+    }
+    result.assessmentPayment = payment || null;
+
+    if (!hasPermission(getCurrentUser(), "consultations.manage")) return result;
+    const { data: meeting, error: meetingError } = await lordblessSupabase
+        .from("client_consultation_meetings")
+        .select("*")
+        .eq("client_id", clientId)
+        .maybeSingle();
+    if (meetingError) {
+        result.assessmentError = meetingError.message || "Consultation details are unavailable.";
+        return result;
+    }
+    result.consultationMeeting = meeting || null;
+
+    if (meeting) {
+        const { data: email, error: emailError } = await lordblessSupabase
+            .from("client_consultation_email_outbox")
+            .select("notification_id, status, updated_at, last_error")
+            .eq("client_id", clientId)
+            .order("updated_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        if (!emailError) result.consultationEmail = email || null;
+    }
+    return result;
+}
+
+
+async function refreshAdminClientAssessment(enquiry, portalState, messageText = "") {
+    const clientId = getEnquiryClientId(enquiry);
+    const assessment = await loadAdminAssessmentState(clientId);
+    if (
+        enquiryModal.classList.contains("hidden") ||
+        enquiryModal.dataset.clientDetailsReference !== String(enquiry.reference || enquiry.id || "")
+    ) return;
+    renderAdminEnquiryClientView(enquiry, { ...portalState, ...assessment });
+    if (messageText) {
+        const message = modalContent.querySelector("[data-assessment-message]");
+        if (message) message.textContent = messageText;
+    }
+}
+
+
+async function sendConsultationEmail(notificationId) {
+    if (!notificationId) return "Meeting saved. Email delivery is pending configuration.";
+    try {
+        const { data, error } = await lordblessSupabase.functions.invoke(
+            "send-consultation-notification",
+            { body: { notification_id: notificationId } }
+        );
+        if (error) return `Meeting saved. Email was not confirmed as sent: ${error.message || "notification service unavailable"}`;
+        if (!data?.sent) return `Meeting saved. Email was not sent: ${data?.error || "delivery is pending"}`;
+        return "Meeting saved and confirmation email sent.";
+    } catch (error) {
+        return `Meeting saved. Email was not confirmed as sent: ${error?.message || "notification service unavailable"}`;
+    }
+}
+
+
+function bindAdminAssessmentActions(enquiry, portalState) {
+    const createButton = modalContent.querySelector("[data-assessment-create]");
+    if (createButton) createButton.addEventListener("click", async () => {
+        const clientId = createButton.dataset.clientId;
+        const message = modalContent.querySelector("[data-assessment-message]");
+        createButton.disabled = true;
+        if (message) message.textContent = "Creating the assessment request…";
+        try {
+            const { data, error } = await lordblessSupabase.rpc(
+                "request_initial_assessment_payment",
+                { p_client_id: clientId }
+            );
+            if (error) throw error;
+            LORDBLESS_ASSESSMENT_FINANCE_LOADED = false;
+            await refreshAdminClientAssessment(
+                enquiry,
+                portalState,
+                data?.created ? "GHS 1,000 assessment request created." : "The existing assessment request was reused."
+            );
+        } catch (error) {
+            if (message) message.textContent = error?.message || "Unable to create the assessment request.";
+            createButton.disabled = false;
+        }
+    });
+
+    const instructionsForm = modalContent.querySelector("[data-assessment-instructions-form]");
+    if (instructionsForm) instructionsForm.addEventListener("submit", async event => {
+        event.preventDefault();
+        const button = instructionsForm.querySelector('[type="submit"]');
+        const message = modalContent.querySelector("[data-assessment-message]");
+        const instructions = new FormData(instructionsForm).get("payment_instructions");
+        button.disabled = true;
+        if (message) message.textContent = "Saving approved payment instructions…";
+        try {
+            const { error } = await lordblessSupabase.rpc(
+                "set_initial_assessment_payment_instructions",
+                {
+                    p_payment_id: instructionsForm.dataset.paymentId,
+                    p_payment_instructions: String(instructions || "").trim()
+                }
+            );
+            if (error) throw error;
+            await refreshAdminClientAssessment(
+                enquiry,
+                portalState,
+                "Finance-approved payment instructions saved."
+            );
+        } catch (error) {
+            if (message) message.textContent = error?.message || "Unable to save payment instructions.";
+            button.disabled = false;
+        }
+    });
+
+    const form = modalContent.querySelector("[data-consultation-form]");
+    if (form) form.addEventListener("submit", async event => {
+        event.preventDefault();
+        const button = form.querySelector('[type="submit"]');
+        const message = modalContent.querySelector("[data-assessment-message]");
+        const fields = new FormData(form);
+        const localStart = `${fields.get("meeting_date")}T${fields.get("meeting_time")}:00`;
+        button.disabled = true;
+        if (message) message.textContent = "Saving the consultation…";
+        try {
+            const { data, error } = await lordblessSupabase.rpc("schedule_client_consultation", {
+                p_client_id: form.dataset.clientId,
+                p_local_start: localStart,
+                p_timezone: fields.get("timezone"),
+                p_duration_minutes: Number(fields.get("duration_minutes")),
+                p_mode: fields.get("mode"),
+                p_location: fields.get("location") || null,
+                p_meeting_link: fields.get("meeting_link") || null,
+                p_instructions: fields.get("instructions") || null
+            });
+            if (error) throw error;
+            const emailMessage = data?.unchanged
+                ? "Meeting details are unchanged."
+                : await sendConsultationEmail(data?.notification_id);
+            await refreshAdminClientAssessment(enquiry, portalState, emailMessage);
+        } catch (error) {
+            if (message) message.textContent = error?.message || "Unable to save the consultation.";
+            button.disabled = false;
+        }
+    });
+
+    const cancelButton = modalContent.querySelector("[data-consultation-cancel]");
+    if (cancelButton) cancelButton.addEventListener("click", async () => {
+        const reason = window.prompt("Optional cancellation note for the client:", "");
+        if (reason === null) return;
+        cancelButton.disabled = true;
+        const message = modalContent.querySelector("[data-assessment-message]");
+        if (message) message.textContent = "Cancelling the consultation…";
+        try {
+            const { data, error } = await lordblessSupabase.rpc("cancel_client_consultation", {
+                p_client_id: cancelButton.dataset.clientId,
+                p_reason: reason || null
+            });
+            if (error) throw error;
+            const emailMessage = data?.unchanged
+                ? "This consultation was already cancelled."
+                : await sendConsultationEmail(data?.notification_id);
+            await refreshAdminClientAssessment(enquiry, portalState, emailMessage);
+        } catch (error) {
+            if (message) message.textContent = error?.message || "Unable to cancel the consultation.";
+            cancelButton.disabled = false;
+        }
+    });
+
+    modalContent.querySelectorAll("[data-consultation-email-retry]").forEach(button => {
+        button.addEventListener("click", async () => {
+            button.disabled = true;
+            const message = modalContent.querySelector("[data-assessment-message]");
+            if (message) message.textContent = "Retrying email delivery…";
+            const result = await sendConsultationEmail(button.dataset.notificationId);
+            await refreshAdminClientAssessment(enquiry, portalState, result);
+        });
     });
 }
 
@@ -7409,13 +7688,17 @@ async function openAdminEnquiryClient(reference) {
     }
 
     try {
-        const account = await loadClientPortalAccount(clientId);
+        const [account, assessment] = await Promise.all([
+            loadClientPortalAccount(clientId),
+            loadAdminAssessmentState(clientId)
+        ]);
         if (
             enquiryModal.dataset.clientDetailsReference !== String(reference || "") ||
             enquiryModal.classList.contains("hidden")
         ) return;
 
         renderAdminEnquiryClientView(enquiry, {
+            ...assessment,
             account,
             canCreate: canCreate && !account,
             canManageAccess: canCreate,

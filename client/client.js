@@ -280,6 +280,11 @@ const CLIENT_FULL_ACCESS_LOCK_MESSAGE =
 
 let clientAccountAccessStatus = null;
 let clientOnboardingNotice = "";
+let clientAssessmentPayment = null;
+let clientAssessmentPaymentLoaded = false;
+let clientConsultationMeeting = null;
+let clientConsultationNotifications = [];
+let clientOnboardingDataError = "";
 
 /* ============================================================
    SHARED PORTAL MOCK DATA
@@ -710,26 +715,119 @@ function getInitialAssessmentPaymentRequests() {
 
     if (
         !clientId ||
-        !bridge ||
         !clientPortalInitialised ||
         !clientAuthResolvedUserId ||
         clientAuthResolvedUserId !== clientAuthLookupUserId
     ) return [];
 
-    const requests = typeof bridge.getPaymentRequests === "function"
+    const requests = bridge && typeof bridge.getPaymentRequests === "function"
         ? bridge.getPaymentRequests(clientId)
-        : bridge.load?.().paymentRequests || [];
+        : bridge?.load?.().paymentRequests || [];
 
-    return requests
+    const localRequests = (Array.isArray(requests) ? requests : [])
         .filter(request =>
             request &&
             request.clientId === clientId &&
             request.purpose === INITIAL_ASSESSMENT_PURPOSE
-        )
+        );
+
+    // The database-backed request is shared between devices and supersedes
+    // any legacy local assessment request for this same client.
+    if (clientAssessmentPayment?.client_id === clientId) {
+        return [mapAssessmentPaymentRequest(clientAssessmentPayment)];
+    }
+    if (clientAssessmentPaymentLoaded) return [];
+
+    return localRequests
         .sort((a, b) =>
             new Date(b.createdAt || 0).getTime() -
             new Date(a.createdAt || 0).getTime()
         );
+}
+
+
+function mapAssessmentPaymentRequest(payment) {
+    if (!payment) return null;
+    return {
+        ...payment,
+        id: payment.id,
+        clientId: payment.client_id,
+        purpose: payment.purpose || INITIAL_ASSESSMENT_PURPOSE,
+        reference: payment.reference,
+        description: "Initial Assessment & 30-Minute Consultation",
+        amount: Number(payment.amount || 1000),
+        currency: payment.currency || "GHS",
+        verificationStatus: payment.verification_status,
+        clientPaymentSubmittedAt: payment.client_payment_submitted_at,
+        clientPaymentDate: payment.client_payment_date,
+        clientPaymentReference: payment.client_payment_reference,
+        requestedDate: payment.created_at,
+        databaseAssessment: true
+    };
+}
+
+
+async function loadClientOnboardingData(clientId) {
+    const requestUserId = clientAuthLookupUserId;
+    clientAssessmentPayment = null;
+    clientAssessmentPaymentLoaded = false;
+    clientConsultationMeeting = null;
+    clientConsultationNotifications = [];
+    clientOnboardingDataError = "";
+
+    const [paymentResult, meetingResult, notificationsResult] = await Promise.all([
+        lordblessSupabase
+            .from("client_assessment_payment_status")
+            .select("*")
+            .eq("client_id", clientId)
+            .maybeSingle(),
+        lordblessSupabase
+            .from("client_consultation_meeting_status")
+            .select("*")
+            .eq("client_id", clientId)
+            .maybeSingle(),
+        lordblessSupabase
+            .from("client_consultation_notifications")
+            .select("id, client_id, meeting_id, revision, event_type, title, message, created_at, read_at")
+            .eq("client_id", clientId)
+            .order("created_at", { ascending: false })
+    ]);
+
+    if (
+        clientId !== LORDBLESS_CLIENT_ACCOUNT.id ||
+        requestUserId !== clientAuthLookupUserId
+    ) return;
+
+    if (paymentResult.error) {
+        clientOnboardingDataError = paymentResult.error.message || "Assessment payment data is not available yet.";
+        console.warn("LORDBLESS CLIENT ASSESSMENT PAYMENT DATA UNAVAILABLE:", paymentResult.error.message);
+    } else if (paymentResult.data?.client_id === clientId) {
+        clientAssessmentPayment = paymentResult.data;
+    }
+    clientAssessmentPaymentLoaded = true;
+
+    if (meetingResult.error) {
+        console.warn("LORDBLESS CLIENT CONSULTATION DATA UNAVAILABLE:", meetingResult.error.message);
+    } else if (meetingResult.data?.client_id === clientId) {
+        clientConsultationMeeting = meetingResult.data;
+    }
+
+    if (notificationsResult.error) {
+        console.warn("LORDBLESS CLIENT CONSULTATION MESSAGES UNAVAILABLE:", notificationsResult.error.message);
+    } else {
+        clientConsultationNotifications = (notificationsResult.data || [])
+            .filter(item => item.client_id === clientId)
+            .map(item => ({
+                id: item.id,
+                clientId: item.client_id,
+                title: item.title,
+                message: item.message,
+                type: `consultation_${item.event_type}`,
+                createdAt: item.created_at,
+                read: Boolean(item.read_at),
+                databaseNotification: true
+            }));
+    }
 }
 
 
@@ -782,6 +880,11 @@ function renderClientOnboardingPanel() {
     const notice = clientOnboardingNotice
         ? `<p class="client-onboarding-lock-message">${escapeHTML(clientOnboardingNotice)}</p>`
         : "";
+    const paymentAvailabilityNotice = clientOnboardingDataError
+        ? `<p role="status">Payment request status could not be loaded. Please refresh or contact Finance before making a payment.</p>`
+        : !request
+            ? `<p>Finance has not issued a shared payment request yet. It will appear in Finance when available.</p>`
+            : "";
 
     if (onboarding.state === "full") {
         panel.innerHTML = `
@@ -814,6 +917,7 @@ function renderClientOnboardingPanel() {
             <h3>Initial Assessment &amp; 30-Minute Consultation</h3>
             <p>This fee covers the initial review of your information and documents, together with a 30-minute one-on-one consultation with a LORDBLESS CONSULTANCY consultant to discuss your profile, objectives, suitable options, and recommended next steps.</p>
             <p><strong>Standard fee: GHS 1,000</strong>${request ? `<br>Amount due: ${escapeHTML(amount)}` : ""}</p>
+            ${paymentAvailabilityNotice}
             <strong>What this includes:</strong>
             <ul class="client-onboarding-includes">
                 <li>Initial review of submitted information</li>
@@ -905,6 +1009,16 @@ function initialiseClientOnboarding() {
     window.addEventListener("storage", event => {
         if (event.key === "LORDBLESS_PORTAL_DATA_BRIDGE_V1") refresh();
     });
+
+    window.addEventListener("lordbless:assessment-payment-updated", event => {
+        const payment = event.detail?.payment;
+        if (!payment || payment.client_id !== LORDBLESS_CLIENT_ACCOUNT.id) return;
+        clientAssessmentPayment = payment;
+        clientAssessmentPaymentLoaded = true;
+        clientOnboardingDataError = "";
+        renderClientOnboardingPanel();
+        renderClientFinance();
+    });
 }
 
 
@@ -970,6 +1084,7 @@ async function handleClientPortalSession(session) {
         }
 
         applyAuthenticatedClientRecord(client);
+        await loadClientOnboardingData(client.id);
         if (account.access_status === "active") {
             await loadAuthenticatedClientJourneys(client.id);
         } else {
@@ -991,6 +1106,7 @@ async function handleClientPortalSession(session) {
             initialiseClientPortal();
         } else {
             renderDashboard();
+            renderClientOnboardingPanel();
             if (account.access_status === "active") {
                 renderTransactionHistory();
                 renderDocuments();
@@ -1455,6 +1571,14 @@ function showView(
     ) {
 
         renderClientFinance();
+        const clientId = LORDBLESS_CLIENT_ACCOUNT.id;
+        if (clientId && clientAuthResolvedUserId === clientAuthLookupUserId) {
+            void loadClientOnboardingData(clientId).then(() => {
+                if (clientId !== LORDBLESS_CLIENT_ACCOUNT.id) return;
+                renderClientOnboardingPanel();
+                renderClientFinance();
+            });
+        }
 
     }
 
@@ -1463,6 +1587,12 @@ function showView(
     ) {
 
         renderClientMessages();
+        const clientId = LORDBLESS_CLIENT_ACCOUNT.id;
+        if (clientId && clientAuthResolvedUserId === clientAuthLookupUserId) {
+            void loadClientOnboardingData(clientId).then(() => {
+                if (clientId === LORDBLESS_CLIENT_ACCOUNT.id) renderClientMessages();
+            });
+        }
 
     }
 
@@ -1485,14 +1615,20 @@ function getClientMessages() {
     const clientId = LORDBLESS_CLIENT_ACCOUNT.id;
 
     if (
-        !clientId ||
-        !bridge ||
-        typeof bridge.getMessages !== "function"
-    ) {
-        return [];
-    }
+        !clientId
+    ) return [];
 
-    return bridge.getMessages(clientId);
+    const localMessages = bridge && typeof bridge.getMessages === "function"
+        ? bridge.getMessages(clientId)
+        : [];
+    const messageMap = new Map();
+    [...clientConsultationNotifications, ...(Array.isArray(localMessages) ? localMessages : [])]
+        .filter(message => message && String(message.clientId) === String(clientId))
+        .forEach(message => messageMap.set(String(message.id), message));
+
+    return Array.from(messageMap.values()).sort((a, b) =>
+        new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    );
 
 }
 
@@ -1507,12 +1643,14 @@ function updateClientMessageBadge() {
 
     const bridge = window.LORDBLESS_PAYMENT_BRIDGE;
     const clientId = LORDBLESS_CLIENT_ACCOUNT.id;
-    const unread = bridge && typeof bridge.getUnreadMessages === "function"
+    const localUnread = bridge && typeof bridge.getUnreadMessages === "function"
         ? bridge.getUnreadMessages(clientId)
         : [];
+    const databaseUnread = clientConsultationNotifications.filter(message => !message.read);
+    const unreadCount = (Array.isArray(localUnread) ? localUnread.length : 0) + databaseUnread.length;
 
-    badge.textContent = String(unread.length);
-    badge.hidden = unread.length === 0;
+    badge.textContent = String(unreadCount);
+    badge.hidden = unreadCount === 0;
 
 }
 
@@ -1612,9 +1750,30 @@ function initialiseClientMessages() {
                 return;
             }
 
+            const message = getClientMessages().find(item => String(item.id) === String(card.dataset.messageId));
             const bridge = window.LORDBLESS_PAYMENT_BRIDGE;
 
-            if (bridge && typeof bridge.markMessageAsRead === "function") {
+            if (message?.databaseNotification) {
+                message.read = true;
+                clientConsultationNotifications = clientConsultationNotifications.map(item =>
+                    item.id === message.id ? { ...item, read: true } : item
+                );
+                void lordblessSupabase.rpc("mark_client_consultation_notification_read", {
+                    p_notification_id: message.id
+                }).then(({ error }) => {
+                    if (error) {
+                        message.read = false;
+                        clientConsultationNotifications = clientConsultationNotifications.map(item =>
+                            item.id === message.id ? { ...item, read: false } : item
+                        );
+                        console.error("Unable to mark consultation message as read:", error.message);
+                    }
+                    updateClientMessageBadge();
+                    if (document.getElementById("view-messages")?.classList.contains("active")) {
+                        renderClientMessages();
+                    }
+                });
+            } else if (bridge && typeof bridge.markMessageAsRead === "function") {
                 bridge.markMessageAsRead(
                     card.dataset.messageId,
                     LORDBLESS_CLIENT_ACCOUNT.id
@@ -1707,6 +1866,14 @@ function renderClientFinance() {
         {
             client:
                 LORDBLESS_CLIENT_ACCOUNT,
+
+            assessmentPayment:
+                clientAssessmentPayment
+                    ? mapAssessmentPaymentRequest(clientAssessmentPayment)
+                    : null,
+
+            assessmentPaymentLoaded:
+                clientAssessmentPaymentLoaded,
 
             transactions:
                 LORDBLESS_CLIENT_ACCOUNT.transactions || [],

@@ -259,7 +259,10 @@
                 "",
 
             verifiedBy:
-                ""
+                "",
+
+            onComplete:
+                typeof options?.onClose === "function" ? options.onClose : null
 
         };
 
@@ -359,6 +362,19 @@
 
                 </div>
 
+
+                ${verificationState.paymentRequest?.databaseAssessment && verificationState.paymentRequest?.client_payment_reference ? `
+                    <div class="lbc-verification-summary">
+                        <div>
+                            <span>CLIENT-REPORTED PAYMENT DATE</span>
+                            <strong>${escapeHtml(verificationState.paymentRequest.client_payment_date || "Not supplied")}</strong>
+                        </div>
+                        <div>
+                            <span>CLIENT-REPORTED REFERENCE</span>
+                            <strong>${escapeHtml(verificationState.paymentRequest.client_payment_reference)}</strong>
+                        </div>
+                    </div>
+                ` : ""}
 
                 <div
                     class="lbc-verification-form"
@@ -741,14 +757,15 @@
        CONFIRM
        --------------------------------------------------------- */
 
-    function confirmPayment() {
+    async function confirmPayment() {
 
         const currentRequest =
             verificationState.paymentRequest;
 
         if (
             currentRequest &&
-            currentRequest.purpose === "initial_assessment_consultation"
+            currentRequest.purpose === "initial_assessment_consultation" &&
+            !currentRequest.databaseAssessment
         ) {
             const bridge =
                 window.LORDBLESS_PAYMENT_BRIDGE;
@@ -927,6 +944,38 @@
 
         const originalRequest =
             verificationState.paymentRequest;
+
+        if (originalRequest?.databaseAssessment) {
+            if (!verificationState.transactionReference.trim()) {
+                showMessage("Enter the verified bank or mobile money transaction reference.", true);
+                return;
+            }
+            const confirmButton = document.querySelector(
+                ".lbc-payment-verification [data-action='confirm']"
+            );
+            if (confirmButton) confirmButton.disabled = true;
+            try {
+                const { error: verificationError } = await lordblessSupabase.rpc(
+                    "verify_initial_assessment_payment",
+                    {
+                        p_payment_id: originalRequest.id,
+                        p_amount_received: receivedAmount,
+                        p_payment_date: verification.paymentDate,
+                        p_transaction_reference: verification.transactionReference,
+                        p_finance_note: verification.financeNote || null
+                    }
+                );
+                if (verificationError) throw verificationError;
+                showMessage("GHS 1,000 payment verified. Client access is active or will activate after password setup.");
+                if (typeof verificationState.onComplete === "function") {
+                    verificationState.onComplete();
+                }
+            } catch (error) {
+                showMessage(error?.message || "The assessment payment could not be verified.", true);
+                if (confirmButton) confirmButton.disabled = false;
+            }
+            return;
+        }
 
 
         /*
