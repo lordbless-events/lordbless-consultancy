@@ -1219,6 +1219,7 @@
                     return `
                         <article
                             class="lbc-client-finance-request"
+                            tabindex="-1"
                             data-payment-request-id="${escapeHTML(
                                 request.id || ""
                             )}"
@@ -1278,9 +1279,9 @@
 
                                 ${isInitialAssessment && isAwaitingVerification ? `
                                     <p class="lbc-client-finance-verification-message">
-                                        We have received your payment submission. Our Finance Team will verify the payment before your full Client Portal is activated.
+                                        Our Finance Team will confirm the payment before your full Client Portal is activated.
                                         <br><br>
-                                        You do not need to make another payment while this payment is being reviewed.
+                                        Contact Finance on WhatsApp if you have already paid. You do not need to make another payment while this request is being reviewed.
                                     </p>
                                 ` : ""}
 
@@ -1292,6 +1293,12 @@
                                 ` : isInitialAssessment && request.databaseAssessment ? `
                                     <p class="lbc-client-finance-verification-message">
                                         Payment instructions are being prepared by Finance. Please wait for the approved instructions before making payment.
+                                    </p>
+                                ` : ""}
+
+                                ${isInitialAssessment ? `
+                                    <p class="lbc-client-finance-verification-message">
+                                        Pay externally using the instructions above. After payment, contact Finance on WhatsApp and provide this request reference. Do not submit payment confirmation through this portal.
                                     </p>
                                 ` : ""}
 
@@ -1316,36 +1323,6 @@
                                 </strong>
 
                             </div>
-
-                            ${isInitialAssessment && !isAwaitingVerification && request.databaseAssessment && request.paymentInstructions ? `
-                                <div class="lbc-client-finance-payment-submission">
-                                    <label>
-                                        Payment date
-                                        <input type="date" data-payment-date required>
-                                    </label>
-                                    <label>
-                                        Transaction reference
-                                        <input type="text" data-payment-reference maxlength="160" required>
-                                    </label>
-                                    <button
-                                        type="button"
-                                        class="lbc-client-finance-submit-payment"
-                                        data-finance-action="submit-payment"
-                                        data-payment-request-id="${escapeHTML(request.id || "")}"
-                                    >
-                                        I HAVE MADE THIS PAYMENT
-                                    </button>
-                                </div>
-                            ` : isInitialAssessment && !isAwaitingVerification && !request.databaseAssessment ? `
-                                <button
-                                    type="button"
-                                    class="lbc-client-finance-submit-payment"
-                                    data-finance-action="submit-payment"
-                                    data-payment-request-id="${escapeHTML(request.id || "")}"
-                                >
-                                    I HAVE MADE THIS PAYMENT
-                                </button>
-                            ` : ""}
 
                         </article>
                     `;
@@ -2469,141 +2446,6 @@
 function bindEvents(
     container
 ) {
-
-    container
-        .querySelectorAll('[data-finance-action="submit-payment"]')
-        .forEach(button => {
-            button.addEventListener("click", async () => {
-                const requestId = button.dataset.paymentRequestId;
-                const request = state.paymentRequests.find(
-                    item => item.id === requestId
-                );
-                if (request?.databaseAssessment) {
-                    const card = button.closest(".lbc-client-finance-request");
-                    const paymentDate = card?.querySelector("[data-payment-date]")?.value;
-                    const transactionReference = card?.querySelector("[data-payment-reference]")?.value?.trim();
-                    if (!paymentDate || !transactionReference) {
-                        showMessage("Enter the payment date and transaction reference.", true);
-                        return;
-                    }
-
-                    button.disabled = true;
-                    const { data, error } = await lordblessSupabase.rpc(
-                        "submit_initial_assessment_payment",
-                        {
-                            p_payment_id: request.id,
-                            p_payment_date: paymentDate,
-                            p_transaction_reference: transactionReference
-                        }
-                    );
-                    if (error) {
-                        button.disabled = false;
-                        showMessage(error.message || "Your payment submission could not be saved.", true);
-                        return;
-                    }
-
-                    const submittedPayment = data?.id ? data : data?.payment;
-                    if (!submittedPayment) {
-                        button.disabled = false;
-                        showMessage("The payment submission response was incomplete. Refresh and check its status.", true);
-                        return;
-                    }
-
-                    const updatedRequest = {
-                        ...request,
-                        ...submittedPayment,
-                        clientId: submittedPayment.client_id,
-                        verificationStatus: submittedPayment.verification_status,
-                        clientPaymentSubmittedAt: submittedPayment.client_payment_submitted_at,
-                        databaseAssessment: true
-                    };
-                    window.dispatchEvent(new CustomEvent("lordbless:assessment-payment-updated", {
-                        detail: { payment: submittedPayment }
-                    }));
-                    showMessage("Your payment details were sent to Finance for verification.");
-                    render(state.container, {
-                        ...state,
-                        paymentRequests: state.paymentRequests.map(item =>
-                            item.id === requestId ? updatedRequest : item
-                        )
-                    });
-                    return;
-                }
-                const clientId = getClientId(state.client);
-                const bridge = window.LORDBLESS_PAYMENT_BRIDGE;
-                const latestRequest =
-                    request &&
-                    bridge &&
-                    typeof bridge.getPaymentRequest === "function"
-                        ? bridge.getPaymentRequest(request.id)
-                        : null;
-
-                if (
-                    !latestRequest ||
-                    !clientId ||
-                    latestRequest.clientId !== clientId ||
-                    latestRequest.purpose !== "initial_assessment_consultation" ||
-                    !bridge ||
-                    typeof bridge.updatePaymentRequest !== "function"
-                ) {
-                    showMessage("This payment request could not be submitted for verification.", true);
-                    return;
-                }
-
-                const requestStatus =
-                    String(latestRequest.status || "")
-                        .trim()
-                        .toLowerCase()
-                        .replace(/[\s-]+/g, "_");
-
-                const verificationStatus =
-                    String(latestRequest.verificationStatus || "")
-                        .trim()
-                        .toLowerCase();
-
-                if (
-                    ["paid", "rejected", "cancelled", "canceled"].includes(requestStatus) ||
-                    ["verified", "rejected"].includes(verificationStatus)
-                ) {
-                    return;
-                }
-
-                if (
-                    [
-                        "awaiting_verification",
-                        "pending",
-                        "submitted",
-                        "payment_submitted",
-                        "under_review"
-                    ].includes(requestStatus) ||
-                    ["pending", "submitted", "under_review"].includes(verificationStatus) ||
-                    latestRequest.clientPaymentSubmittedAt
-                ) {
-                    return;
-                }
-
-                const updatedRequest = bridge.updatePaymentRequest(latestRequest.id, {
-                    status: "awaiting_verification",
-                    verificationStatus: "pending",
-                    clientPaymentSubmittedAt:
-                        latestRequest.clientPaymentSubmittedAt || new Date().toISOString()
-                });
-
-                if (!updatedRequest) {
-                    showMessage("Your payment submission could not be saved. Please try again.", true);
-                    return;
-                }
-
-                const paymentRequests = state.paymentRequests.map(item =>
-                    item.id === updatedRequest.id ? updatedRequest : item
-                );
-
-                render(state.container, {
-                    ...state,
-                    paymentRequests
-                });
-            });
-        });
 
     const toggle =
         container.querySelector(

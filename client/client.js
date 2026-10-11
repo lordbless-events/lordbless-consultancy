@@ -282,6 +282,7 @@ let clientAccountAccessStatus = null;
 let clientOnboardingNotice = "";
 let clientAssessmentPayment = null;
 let clientAssessmentPaymentLoaded = false;
+let clientPendingPaymentRequestFocus = false;
 let clientConsultationMeeting = null;
 let clientConsultationNotifications = [];
 let clientOnboardingDataError = "";
@@ -758,6 +759,7 @@ function mapAssessmentPaymentRequest(payment) {
         amount: Number(payment.amount || 1000),
         currency: payment.currency || "GHS",
         verificationStatus: payment.verification_status,
+        paymentInstructions: payment.payment_instructions || payment.paymentInstructions || "",
         clientPaymentSubmittedAt: payment.client_payment_submitted_at,
         clientPaymentDate: payment.client_payment_date,
         clientPaymentReference: payment.client_payment_reference,
@@ -901,7 +903,7 @@ function renderClientOnboardingPanel() {
             <span class="client-onboarding-status">PAYMENT AWAITING VERIFICATION</span>
             <h3>Initial Assessment &amp; 30-Minute Consultation</h3>
             <p>Payment: ${escapeHTML(amount)}</p>
-            <p>We have received your payment submission. Our Finance Team will verify the payment before your full Client Portal is activated.</p>
+            <p>Our Finance Team will confirm the payment before your full Client Portal is activated.</p>
             <p>You do not need to make another payment while this payment is being reviewed.</p>
             ${notice}
         `;
@@ -968,13 +970,9 @@ function initialiseClientOnboarding() {
 
             if (button.dataset.onboardingAction === "view-payment") {
                 clientOnboardingNotice = "";
+                clientPendingPaymentRequestFocus = true;
                 showView("payments");
-                setTimeout(() => {
-                    const request = getClientOnboardingPaymentState().request;
-                    const card = Array.from(document.querySelectorAll("[data-payment-request-id]"))
-                        .find(item => item.dataset.paymentRequestId === request?.id);
-                    card?.scrollIntoView({ behavior: "smooth", block: "center" });
-                }, 0);
+                focusClientPaymentRequest();
             } else if (button.dataset.onboardingAction === "view-receipt") {
                 const request = getClientOnboardingPaymentState().request;
                 showView("payments");
@@ -1577,6 +1575,7 @@ function showView(
                 if (clientId !== LORDBLESS_CLIENT_ACCOUNT.id) return;
                 renderClientOnboardingPanel();
                 renderClientFinance();
+                focusClientPaymentRequest();
             });
         }
 
@@ -1900,6 +1899,24 @@ payments:
                 : []
     }
 );
+}
+
+
+function focusClientPaymentRequest() {
+    if (!clientPendingPaymentRequestFocus) return;
+
+    const requestId = getClientOnboardingPaymentState().request?.id;
+    if (!requestId) return;
+
+    const card = Array.from(
+        document.querySelectorAll(".lbc-client-finance-request[data-payment-request-id]")
+    ).find(item => item.dataset.paymentRequestId === requestId);
+
+    if (!card) return;
+
+    card.scrollIntoView({ behavior: "smooth", block: "center" });
+    card.focus({ preventScroll: true });
+    clientPendingPaymentRequestFocus = false;
 }
 
 /* ============================================================

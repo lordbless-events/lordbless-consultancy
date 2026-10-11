@@ -1087,11 +1087,11 @@ begin
         raise exception 'An active or limited client account is required.' using errcode = '42501';
 
     end if;
-////
 
-    set read_at = coalesce(n.read_at, now())
-
-    where n.id = p_notification_id and n.client_id = own_client_id;
+UPDATE public.client_consultation_notifications n
+SET read_at = COALESCE(n.read_at, NOW())
+WHERE n.id = p_notification_id
+  AND n.client_id = own_client_id;
 
     return found;
 
