@@ -1,7 +1,6 @@
-\-- Shared initial assessment payment, consultation scheduling, and client notices.
+-- Shared initial assessment payment, consultation scheduling, and client notices.
 
-\-- Existing UUID client identities and local Finance records remain untouched.
-
+-- Existing UUID client identities and local Finance records remain untouched.
 
 do $$
 
@@ -29,7 +28,6 @@ end;
 
 $$;
 
-
 insert into public.permissions (permission_code, description)
 
 values ('consultations.manage', 'Schedule, reschedule, and cancel client consultations.')
@@ -37,7 +35,6 @@ values ('consultations.manage', 'Schedule, reschedule, and cancel client consult
 on conflict (permission_code) do update
 
 set description = excluded.description;
-
 
 create table public.client_assessment_payments (
 
@@ -49,7 +46,7 @@ create table public.client_assessment_payments (
 
     reference text not null unique default ('LBC-AS-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 12))),
 
-    purpose text not null default 'initial_assessment_consultation'
+    purpose text not null default 'initial_assessment_consultation',
 
         check (purpose = 'initial_assessment_consultation'),
 
@@ -57,11 +54,11 @@ create table public.client_assessment_payments (
 
     currency text not null default 'GHS' check (currency = 'GHS'),
 
-    status text not null default 'requested'
+    status text not null default 'requested',
 
         check (status in ('requested', 'awaiting_verification', 'paid', 'rejected', 'cancelled')),
 
-    verification_status text not null default 'not_verified'
+    verification_status text not null default 'not_verified',
 
         check (verification_status in ('not_verified', 'pending', 'verified', 'rejected')),
 
@@ -101,7 +98,6 @@ create table public.client_assessment_payments (
 
 );
 
-
 create table public.client_consultation_meetings (
 
     id uuid primary key default gen_random_uuid(),
@@ -140,7 +136,6 @@ create table public.client_consultation_meetings (
 
 );
 
-
 create table public.client_consultation_notifications (
 
     id uuid primary key default gen_random_uuid(),
@@ -165,7 +160,6 @@ create table public.client_consultation_notifications (
 
 );
 
-
 create table public.client_consultation_email_outbox (
 
     id uuid primary key default gen_random_uuid(),
@@ -188,7 +182,6 @@ create table public.client_consultation_email_outbox (
 
 );
 
-
 create index client_assessment_payments_client_status_idx
 
     on public.client_assessment_payments (client_id, status);
@@ -201,7 +194,6 @@ create index client_consultation_notifications_client_created_idx
 
     on public.client_consultation_notifications (client_id, created_at desc);
 
-
 drop trigger if exists client_assessment_payments_set_updated_at on public.client_assessment_payments;
 
 create trigger client_assessment_payments_set_updated_at
@@ -209,7 +201,6 @@ create trigger client_assessment_payments_set_updated_at
 before update on public.client_assessment_payments
 
 for each row execute function private.set_updated_at();
-
 
 drop trigger if exists client_consultation_meetings_set_updated_at on public.client_consultation_meetings;
 
@@ -219,7 +210,6 @@ before update on public.client_consultation_meetings
 
 for each row execute function private.set_updated_at();
 
-
 alter table public.client_assessment_payments enable row level security;
 
 alter table public.client_consultation_meetings enable row level security;
@@ -227,7 +217,6 @@ alter table public.client_consultation_meetings enable row level security;
 alter table public.client_consultation_notifications enable row level security;
 
 alter table public.client_consultation_email_outbox enable row level security;
-
 
 revoke all on public.client_assessment_payments,
 
@@ -253,13 +242,11 @@ grant all on public.client_assessment_payments,
 
     public.client_consultation_email_outbox to service_role;
 
-
 create policy client_assessment_payments_finance_read
 
 on public.client_assessment_payments for select to authenticated
 
 using (private.has_permission('finance.read'));
-
 
 create policy client_consultation_meetings_staff_read
 
@@ -272,7 +259,6 @@ using (
     and private.can_access_client(client_id)
 
 );
-
 
 create policy client_consultation_notifications_read
 
@@ -288,7 +274,6 @@ using (
 
 );
 
-
 create policy client_consultation_email_outbox_staff_read
 
 on public.client_consultation_email_outbox for select to authenticated
@@ -301,8 +286,7 @@ using (
 
 );
 
-
-\-- Safe client projections are owner-rights views with explicit ownership predicates.
+-- Safe client projections are owner-rights views with explicit ownership predicates.
 
 create view public.client_assessment_payment_status
 
@@ -328,7 +312,6 @@ where p.client_id = private.current_client_id()
 
    or p.client_id = private.current_limited_client_id();
 
-
 create view public.client_consultation_meeting_status
 
 with (security_barrier = true)
@@ -349,7 +332,6 @@ where m.client_id = private.current_client_id()
 
    or m.client_id = private.current_limited_client_id();
 
-
 revoke all on public.client_assessment_payment_status,
 
     public.client_consultation_meeting_status from public, anon;
@@ -357,7 +339,6 @@ revoke all on public.client_assessment_payment_status,
 grant select on public.client_assessment_payment_status,
 
     public.client_consultation_meeting_status to authenticated;
-
 
 create or replace function public.request_initial_assessment_payment(p_client_id uuid)
 
@@ -385,8 +366,7 @@ begin
 
     end if;
 
-
-    select \* into client_record
+    select * into client_record
 
     from public.clients c
 
@@ -398,8 +378,7 @@ begin
 
     end if;
 
-
-    select \* into payment_record
+    select * into payment_record
 
     from public.client_assessment_payments p
 
@@ -407,13 +386,11 @@ begin
 
     for update;
 
-
     if found then
 
         return jsonb_build_object('created', false, 'payment', to_jsonb(payment_record));
 
     end if;
-
 
     insert into public.client_assessment_payments (
 
@@ -431,12 +408,11 @@ begin
 
     on conflict (client_id) do nothing
 
-    returning \* into payment_record;
-
+    returning * into payment_record;
 
     if not found then
 
-        select \* into payment_record
+        select * into payment_record
 
         from public.client_assessment_payments p
 
@@ -446,13 +422,11 @@ begin
 
     end if;
 
-
     return jsonb_build_object('created', true, 'payment', to_jsonb(payment_record));
 
 end;
 
 $$;
-
 
 create or replace function public.submit_initial_assessment_payment(
 
@@ -508,7 +482,6 @@ begin
 
     end if;
 
-
     update public.client_assessment_payments p
 
     set status = 'awaiting_verification',
@@ -529,12 +502,11 @@ begin
 
       and p.status = 'requested'
 
-    returning \* into payment_record;
-
+    returning * into payment_record;
 
     if not found then
 
-        select \* into payment_record
+        select * into payment_record
 
         from public.client_assessment_payments p
 
@@ -548,13 +520,11 @@ begin
 
     end if;
 
-
     return to_jsonb(payment_record);
 
 end;
 
 $$;
-
 
 create or replace function public.set_initial_assessment_payment_instructions(
 
@@ -594,8 +564,7 @@ begin
 
     end if;
 
-
-    select \* into payment_record
+    select * into payment_record
 
     from public.client_assessment_payments p
 
@@ -615,21 +584,19 @@ begin
 
     end if;
 
-
     update public.client_assessment_payments p
 
     set payment_instructions = trim(p_payment_instructions), updated_at = now()
 
     where p.id = p_payment_id
 
-    returning \* into payment_record;
+    returning * into payment_record;
 
     return to_jsonb(payment_record);
 
 end;
 
 $$;
-
 
 create or replace function public.verify_initial_assessment_payment(
 
@@ -675,8 +642,7 @@ begin
 
     end if;
 
-
-    select \* into payment_record
+    select * into payment_record
 
     from public.client_assessment_payments p
 
@@ -702,7 +668,6 @@ begin
 
     end if;
 
-
     update public.client_assessment_payments p
 
     set status = 'paid',
@@ -725,8 +690,7 @@ begin
 
     where p.id = p_payment_id
 
-    returning \* into payment_record;
-
+    returning * into payment_record;
 
     -- Only an already password-configured limited account becomes active here.
 
@@ -742,13 +706,11 @@ begin
 
       and ca.access_status = 'activation_required';
 
-
     return jsonb_build_object('payment', to_jsonb(payment_record), 'already_verified', false);
 
 end;
 
 $$;
-
 
 create or replace function public.schedule_client_consultation(
 
@@ -846,10 +808,9 @@ begin
 
     end if;
 
-
     meeting_start := p_local_start at time zone p_timezone;
 
-    select \* into old_record
+    select * into old_record
 
     from public.client_consultation_meetings m
 
@@ -858,7 +819,6 @@ begin
     for update;
 
     had_meeting := found;
-
 
     if had_meeting
 
@@ -878,7 +838,7 @@ begin
 
         and old_record.instructions is not distinct from nullif(trim(coalesce(p_instructions, '')), '') then
 
-        select \* into notification_record
+        select * into notification_record
 
         from public.client_consultation_notifications n
 
@@ -889,7 +849,6 @@ begin
         return jsonb_build_object('meeting', to_jsonb(old_record), 'notification_id', notification_record.id, 'unchanged', true);
 
     end if;
-
 
     if had_meeting then
 
@@ -921,7 +880,7 @@ begin
 
         where m.id = old_record.id
 
-        returning \* into meeting_record;
+        returning * into meeting_record;
 
     else
 
@@ -949,10 +908,9 @@ begin
 
         where p.client_id = p_client_id
 
-        returning \* into meeting_record;
+        returning * into meeting_record;
 
     end if;
-
 
     message_body := 'Your Initial Assessment & 30-Minute Consultation has been ' || event_kind || ' for ' ||
 
@@ -960,14 +918,13 @@ begin
 
         ' (' || meeting_record.timezone || '). Duration: ' || meeting_record.duration_minutes || ' minutes. Mode: ' ||
 
-        replace(meeting_record.mode, '\_', ' ') || '.' ||
+        replace(meeting_record.mode, '_', ' ') || '.' ||
 
         case when meeting_record.location is not null then E'\nLocation: ' || meeting_record.location else '' end ||
 
         case when meeting_record.meeting_link is not null then E'\nMeeting link: ' || meeting_record.meeting_link else '' end ||
 
         case when meeting_record.instructions is not null then E'\nInstructions: ' || meeting_record.instructions else '' end;
-
 
     insert into public.client_consultation_notifications (
 
@@ -981,8 +938,7 @@ begin
 
         message_body
 
-    ) returning \* into notification_record;
-
+    ) returning * into notification_record;
 
     insert into public.client_consultation_email_outbox (notification_id, client_id)
 
@@ -990,13 +946,11 @@ begin
 
     on conflict (notification_id) do nothing;
 
-
     return jsonb_build_object('meeting', to_jsonb(meeting_record), 'notification_id', notification_record.id, 'unchanged', false);
 
 end;
 
 $$;
-
 
 create or replace function public.cancel_client_consultation(
 
@@ -1034,8 +988,7 @@ begin
 
     end if;
 
-
-    select \* into meeting_record
+    select * into meeting_record
 
     from public.client_consultation_meetings m
 
@@ -1051,7 +1004,7 @@ begin
 
     if meeting_record.status = 'cancelled' then
 
-        select \* into notification_record
+        select * into notification_record
 
         from public.client_consultation_notifications n
 
@@ -1061,7 +1014,6 @@ begin
 
     end if;
 
-
     update public.client_consultation_meetings m
 
     set status = 'cancelled', revision = m.revision + 1,
@@ -1070,8 +1022,7 @@ begin
 
     where m.id = meeting_record.id
 
-    returning \* into meeting_record;
-
+    returning * into meeting_record;
 
     message_body := 'Your Initial Assessment & 30-Minute Consultation scheduled for ' ||
 
@@ -1080,7 +1031,6 @@ begin
         ' (' || meeting_record.timezone || ') has been cancelled.' ||
 
         case when nullif(trim(coalesce(p_reason, '')), '') is not null then E'\n' || trim(p_reason) else '' end;
-
 
     insert into public.client_consultation_notifications (
 
@@ -1092,8 +1042,7 @@ begin
 
         'Consultation Cancelled', message_body
 
-    ) returning \* into notification_record;
-
+    ) returning * into notification_record;
 
     insert into public.client_consultation_email_outbox (notification_id, client_id)
 
@@ -1101,13 +1050,11 @@ begin
 
     on conflict (notification_id) do nothing;
 
-
     return jsonb_build_object('meeting', to_jsonb(meeting_record), 'notification_id', notification_record.id, 'unchanged', false);
 
 end;
 
 $$;
-
 
 create or replace function public.mark_client_consultation_notification_read(p_notification_id uuid)
 
@@ -1140,8 +1087,7 @@ begin
         raise exception 'An active or limited client account is required.' using errcode = '42501';
 
     end if;
-
-    update public.client_consultation_notifications n
+////
 
     set read_at = coalesce(n.read_at, now())
 
@@ -1152,7 +1098,6 @@ begin
 end;
 
 $$;
-
 
 revoke all on function public.request_initial_assessment_payment(uuid) from public, anon;
 
@@ -1167,8 +1112,6 @@ revoke all on function public.schedule_client_consultation(uuid, timestamp witho
 revoke all on function public.cancel_client_consultation(uuid, text) from public, anon;
 
 revoke all on function public.mark_client_consultation_notification_read(uuid) from public, anon;
-
-
 grant execute on function public.request_initial_assessment_payment(uuid) to authenticated;
 
 grant execute on function public.submit_initial_assessment_payment(uuid, date, text) to authenticated;
