@@ -312,6 +312,21 @@
                     class="lbc-verification-summary"
                 >
 
+                    ${verificationState.paymentRequest?.databaseAssessment ? `
+                        <div>
+                            <span>CLIENT ID</span>
+                            <strong>${escapeHtml(verificationState.paymentRequest.clientCode || "ID pending")}</strong>
+                        </div>
+                        <div>
+                            <span>STANDARD FEE</span>
+                            <strong>${formatMoney(verificationState.paymentRequest.standardAmount ?? 1000, "GHS")}</strong>
+                        </div>
+                        <div>
+                            <span>AUTHORIZED DISCOUNT</span>
+                            <strong>${formatMoney(verificationState.paymentRequest.discountAmount ?? 0, "GHS")}</strong>
+                        </div>
+                    ` : ""}
+
                     <div>
 
                         <span>
@@ -363,19 +378,6 @@
                 </div>
 
 
-                ${verificationState.paymentRequest?.databaseAssessment && verificationState.paymentRequest?.client_payment_reference ? `
-                    <div class="lbc-verification-summary">
-                        <div>
-                            <span>CLIENT-REPORTED PAYMENT DATE</span>
-                            <strong>${escapeHtml(verificationState.paymentRequest.client_payment_date || "Not supplied")}</strong>
-                        </div>
-                        <div>
-                            <span>CLIENT-REPORTED REFERENCE</span>
-                            <strong>${escapeHtml(verificationState.paymentRequest.client_payment_reference)}</strong>
-                        </div>
-                    </div>
-                ` : ""}
-
                 <div
                     class="lbc-verification-form"
                 >
@@ -413,6 +415,7 @@
 
                             <select
                                 data-field="currency"
+                                ${verificationState.paymentRequest?.databaseAssessment ? "disabled" : ""}
                             >
 
                                 <option
@@ -874,6 +877,18 @@
 
 
         if (
+            verificationState.paymentRequest?.databaseAssessment &&
+            (receivedAmount !== requestedAmount ||
+                String(verificationState.currency).toUpperCase() !== "GHS")
+        ) {
+            showMessage(
+                `Enter the exact final amount received in GHS (${formatMoney(requestedAmount, "GHS")}).`,
+                true
+            );
+            return;
+        }
+
+        if (
             verificationState.currency ===
             getRequestedCurrency() &&
             receivedAmount < requestedAmount
@@ -955,7 +970,7 @@
             );
             if (confirmButton) confirmButton.disabled = true;
             try {
-                const { error: verificationError } = await lordblessSupabase.rpc(
+                const { data: verificationData, error: verificationError } = await lordblessSupabase.rpc(
                     "verify_initial_assessment_payment",
                     {
                         p_payment_id: originalRequest.id,
@@ -966,7 +981,16 @@
                     }
                 );
                 if (verificationError) throw verificationError;
-                showMessage("GHS 1,000 payment verified. Client access is active or will activate after password setup.");
+                const verifiedPayment = verificationData?.payment || {};
+                const receiptMessage = verifiedPayment.receipt_number
+                    ? ` Receipt ${verifiedPayment.receipt_number} was issued.`
+                    : verificationData?.already_verified
+                        ? " No duplicate receipt was created."
+                        : "";
+                showMessage(`Payment of ${formatMoney(requestedAmount, getRequestedCurrency())} verified. Client access is active or will activate after password setup.${receiptMessage}`);
+                window.dispatchEvent(new CustomEvent("lordbless:assessment-payment-verified", {
+                    detail: { payment: verifiedPayment }
+                }));
                 if (typeof verificationState.onComplete === "function") {
                     verificationState.onComplete();
                 }

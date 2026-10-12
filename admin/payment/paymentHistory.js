@@ -272,6 +272,40 @@
        PAYMENT REQUESTS
     ============================================================ */
 
+    function mergeDatabaseAssessmentRequests(requests) {
+        const databaseRequests = Array.isArray(window.LORDBLESS_ASSESSMENT_FINANCE_HISTORY)
+            ? window.LORDBLESS_ASSESSMENT_FINANCE_HISTORY
+            : [];
+        const databaseClients = new Set(databaseRequests.flatMap(request => [
+            String(request.clientId),
+            String(request.clientCode || ""),
+            String(request.clientUuid || "")
+        ]));
+        const localRequests = Array.isArray(requests) ? requests : [];
+        return [
+            ...localRequests.filter(request => !(
+                request?.purpose === "initial_assessment_consultation" &&
+                databaseClients.has(String(request.clientId))
+            )),
+            ...databaseRequests
+        ];
+    }
+
+    function mergeDatabaseAssessmentReceipts(receipts) {
+        const databaseReceipts = Array.isArray(window.LORDBLESS_ASSESSMENT_FINANCE_RECEIPTS)
+            ? window.LORDBLESS_ASSESSMENT_FINANCE_RECEIPTS
+            : [];
+        const numbers = new Set(databaseReceipts.map(receipt => String(receipt.receiptNumber)));
+        const requestIds = new Set(databaseReceipts.map(receipt => String(receipt.paymentRequestId)));
+        return [
+            ...(Array.isArray(receipts) ? receipts : []).filter(receipt =>
+                !numbers.has(String(receipt?.receiptNumber || receipt?.receipt_number || "")) &&
+                !requestIds.has(String(receipt?.paymentRequestId || receipt?.payment_request_id || ""))
+            ),
+            ...databaseReceipts
+        ];
+    }
+
     function getPaymentRequests() {
 
         const bridge = getBridge();
@@ -297,7 +331,7 @@
 
             if (Array.isArray(requests)) {
 
-                return requests;
+                return mergeDatabaseAssessmentRequests(requests);
 
             }
 
@@ -324,7 +358,7 @@
 
             if (Array.isArray(requests)) {
 
-                return requests;
+                return mergeDatabaseAssessmentRequests(requests);
 
             }
 
@@ -345,12 +379,12 @@
 
         ) {
 
-            return window.LORDBLESS_PAYMENT_REQUESTS;
+            return mergeDatabaseAssessmentRequests(window.LORDBLESS_PAYMENT_REQUESTS);
 
         }
 
 
-        return [];
+        return mergeDatabaseAssessmentRequests([]);
 
     }
 
@@ -418,7 +452,7 @@
 
             if (Array.isArray(receipts)) {
 
-                return receipts;
+                return mergeDatabaseAssessmentReceipts(receipts);
 
             }
 
@@ -444,7 +478,7 @@
 
             if (Array.isArray(receipts)) {
 
-                return receipts;
+                return mergeDatabaseAssessmentReceipts(receipts);
 
             }
 
@@ -465,12 +499,12 @@
 
         ) {
 
-            return window.LORDBLESS_RECEIPTS;
+            return mergeDatabaseAssessmentReceipts(window.LORDBLESS_RECEIPTS);
 
         }
 
 
-        return [];
+        return mergeDatabaseAssessmentReceipts([]);
 
     }
 

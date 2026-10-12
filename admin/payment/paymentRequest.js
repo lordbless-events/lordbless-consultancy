@@ -1089,7 +1089,7 @@
        FORM SUBMISSION HANDLER
        ============================================================ */
 
-    function handleFormSubmit(
+    async function handleFormSubmit(
         event
     ) {
 
@@ -1181,6 +1181,49 @@
 
             return null;
 
+        }
+
+        if (isInitialAssessment && formData.databaseAssessment === "true") {
+            const submitButton = form.querySelector('[type="submit"]');
+            if (typeof lordblessSupabase === "undefined") {
+                showFormMessage(form, "The secure assessment payment service is unavailable.", "error");
+                return null;
+            }
+
+            if (submitButton) submitButton.disabled = true;
+            try {
+                const { data, error } = await lordblessSupabase.rpc(
+                    "request_initial_assessment_payment",
+                    {
+                        p_client_id: formData.clientId,
+                        p_discount_amount: Number(formData.discount) || 0
+                    }
+                );
+                if (error) throw error;
+
+                const payment = data?.payment || data;
+                if (!payment?.id) {
+                    throw new Error("The saved assessment request response was incomplete.");
+                }
+
+                window.dispatchEvent(new CustomEvent("lordbless:assessment-payment-request-created", {
+                    detail: { payment, created: Boolean(data?.created) }
+                }));
+
+                showFormMessage(
+                    form,
+                    data?.created
+                        ? "Assessment payment request created. The client can now see the saved amount and payment instructions in Finance."
+                        : "The existing assessment request was reused. Its saved amount and discount were not changed.",
+                    "success"
+                );
+                setTimeout(() => closeComposer(form.closest(".lordbless-payment-modal")), 1500);
+                return payment;
+            } catch (error) {
+                showFormMessage(form, error?.message || "The assessment payment request could not be saved.", "error");
+                if (submitButton) submitButton.disabled = false;
+                return null;
+            }
         }
 
 
@@ -1939,6 +1982,12 @@
 
                         <input
                             type="hidden"
+                            name="databaseAssessment"
+                            value="${isInitialAssessment && settings.databaseAssessment ? "true" : "false"}"
+                        >
+
+                        <input
+                            type="hidden"
                             name="title"
                             value="${isInitialAssessment ? escapeHtml(initialAssessmentDescription) : ""}"
                         >
@@ -2126,7 +2175,7 @@
                                         step="0.01"
                                         value="0"
                                         aria-label="Discount amount in Ghana cedis"
-                                        placeholder="Discount"
+                                        placeholder="Discount (GHS)"
                                     >
                                     <input
                                         type="number"

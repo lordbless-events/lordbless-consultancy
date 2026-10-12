@@ -311,6 +311,12 @@
                 request.reference ||
                 null,
 
+            standardAmount:
+                Number(request.standardAmount ?? request.standard_amount ?? request.amount ?? 0),
+
+            discountAmount:
+                Number(request.discountAmount ?? request.discount_amount ?? 0),
+
             verificationId:
                 verification &&
                 verification.id
@@ -367,6 +373,16 @@
                 ) ||
                 request.paidAt ||
                 todayISO(),
+
+            verifiedAt:
+                (verification && verification.verifiedAt) ||
+                request.verifiedAt ||
+                null,
+
+            verifiedByName:
+                (verification && (verification.verifiedByName || verification.verifiedBy)) ||
+                request.verifiedByName ||
+                null,
 
             paymentMethod:
                 (
@@ -1419,8 +1435,31 @@
                             </strong>
                         </div>
 
+                        <div class="lbc-receipt-field">
+                            <span>Payment Request Reference</span>
+                            <strong>${escapeHTML(receipt.paymentRequestReference || "—")}</strong>
+                        </div>
+
+                        <div class="lbc-receipt-field">
+                            <span>Verified By</span>
+                            <strong>${escapeHTML(receipt.verifiedByName?.name || receipt.verifiedByName || "—")}</strong>
+                        </div>
+
+                        <div class="lbc-receipt-field">
+                            <span>Verification Date</span>
+                            <strong>${escapeHTML(formatDateTime(receipt.verifiedAt))}</strong>
+                        </div>
+
                     </div>
 
+                </div>
+
+                <div class="lbc-receipt-section">
+                    <div class="lbc-receipt-section-heading">FEE BREAKDOWN</div>
+                    <div class="lbc-receipt-grid">
+                        <div class="lbc-receipt-field"><span>Standard fee</span><strong>${escapeHTML(formatAmount(receipt.standardAmount ?? receipt.amount, receipt.currency))}</strong></div>
+                        <div class="lbc-receipt-field"><span>Discount</span><strong>${escapeHTML(formatAmount(receipt.discountAmount ?? 0, receipt.currency))}</strong></div>
+                    </div>
                 </div>
 
                 <div class="

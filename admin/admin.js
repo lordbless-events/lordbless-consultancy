@@ -1127,17 +1127,36 @@ function getFinancePaymentRequests() {
         const data =
             window.LORDBLESS_PAYMENT_BRIDGE.load();
 
-        return Array.isArray(data.paymentRequests)
-            ? data.paymentRequests
-            : [];
+        return mergeAdminAssessmentRequests(
+            Array.isArray(data.paymentRequests) ? data.paymentRequests : []
+        );
     }
 
     return Array.isArray(
         window.LORDBLESS_PAYMENT_REQUESTS
     )
-        ? window.LORDBLESS_PAYMENT_REQUESTS
-        : [];
+        ? mergeAdminAssessmentRequests(window.LORDBLESS_PAYMENT_REQUESTS)
+        : mergeAdminAssessmentRequests([]);
 
+}
+
+
+function mergeAdminAssessmentRequests(localRequests) {
+    const assessmentRequests = Array.isArray(window.LORDBLESS_ASSESSMENT_FINANCE_HISTORY)
+        ? window.LORDBLESS_ASSESSMENT_FINANCE_HISTORY
+        : [];
+    const databaseClients = new Set(assessmentRequests.flatMap(request => [
+        String(request.clientId),
+        String(request.clientCode || ""),
+        String(request.clientUuid || "")
+    ]));
+    return [
+        ...(Array.isArray(localRequests) ? localRequests : []).filter(request => !(
+            request?.purpose === "initial_assessment_consultation" &&
+            databaseClients.has(String(request.clientId))
+        )),
+        ...assessmentRequests
+    ];
 }
 
 
@@ -1152,18 +1171,60 @@ function loadAdminAssessmentFinanceRequests() {
 
     lordblessSupabase
         .from("client_assessment_payments")
-        .select("id, client_id, client_name, reference, amount, currency, purpose, status, verification_status, client_payment_submitted_at, client_payment_date, client_payment_reference, created_at")
-        .in("status", ["requested", "awaiting_verification"])
+        .select("id, client_id, client_name, client_code, reference, amount, standard_amount, discount_amount, currency, purpose, status, verification_status, payment_instructions, client_payment_submitted_at, client_payment_date, client_payment_reference, verified_by, verified_by_name, verified_at, amount_received, payment_date, transaction_reference, receipt_number, receipt_issued_at, created_at")
         .order("created_at", { ascending: true })
         .then(({ data, error }) => {
             LORDBLESS_ASSESSMENT_FINANCE_ERROR = error?.message || "";
             LORDBLESS_ASSESSMENT_FINANCE_REQUESTS = (data || []).map(item => ({
                 ...item,
-                clientId: item.client_id,
+                clientId: item.client_code || "ID pending",
+                clientUuid: item.client_id,
                 clientName: item.client_name,
+                clientCode: item.client_code || "ID pending",
+                standardAmount: Number(item.standard_amount ?? 1000),
+                discountAmount: Number(item.discount_amount ?? 0),
+                paymentInstructions: item.payment_instructions || "",
                 verificationStatus: item.verification_status,
+                verifiedByName: item.verified_by_name || "",
+                receiptId: item.receipt_number || null,
+                receiptNumber: item.receipt_number || null,
+                verification: item.verification_status === "verified" ? {
+                    status: "confirmed",
+                    receivedAmount: Number(item.amount_received ?? item.amount),
+                    amountReceived: Number(item.amount_received ?? item.amount),
+                    currency: item.currency,
+                    paymentDate: item.payment_date,
+                    transactionReference: item.transaction_reference,
+                    verifiedAt: item.verified_at,
+                    verifiedBy: item.verified_by_name || item.verified_by
+                } : null,
                 databaseAssessment: true
             }));
+            window.LORDBLESS_ASSESSMENT_FINANCE_HISTORY = LORDBLESS_ASSESSMENT_FINANCE_REQUESTS;
+            window.LORDBLESS_ASSESSMENT_FINANCE_RECEIPTS = LORDBLESS_ASSESSMENT_FINANCE_REQUESTS
+                .filter(item => item.receipt_number && item.verificationStatus === "verified")
+                .map(item => ({
+                    id: item.receipt_number,
+                    receiptNumber: item.receipt_number,
+                    paymentRequestId: item.id,
+                    paymentId: item.id,
+                    clientId: item.clientCode,
+                    clientName: item.clientName,
+                    paymentRequestReference: item.reference,
+                    description: "Initial Assessment & 30-Minute Consultation",
+                    amount: Number(item.amount_received ?? item.amount),
+                    standardAmount: item.standardAmount,
+                    discountAmount: item.discountAmount,
+                    currency: item.currency,
+                    paymentDate: item.payment_date,
+                    paymentMethod: "Mobile Money",
+                    paymentReference: item.transaction_reference,
+                    issuedAt: item.receipt_issued_at,
+                    verifiedAt: item.verified_at,
+                    verifiedByName: item.verifiedByName,
+                    status: "issued",
+                    databaseAssessment: true
+                }));
             LORDBLESS_ASSESSMENT_FINANCE_LOADED = true;
         })
         .catch(error => {
@@ -1173,11 +1234,17 @@ function loadAdminAssessmentFinanceRequests() {
         .finally(() => {
             LORDBLESS_ASSESSMENT_FINANCE_LOADING = false;
             LORDBLESS_ASSESSMENT_FINANCE_LOADED_AT = Date.now();
-            if (LORDBLESS_FINANCE_ACTIVE_VIEW === "verification") {
-                renderFinanceView("verification");
+            if (["verification", "receipts", "reports"].includes(LORDBLESS_FINANCE_ACTIVE_VIEW)) {
+                renderFinanceView(LORDBLESS_FINANCE_ACTIVE_VIEW);
             }
         });
 }
+
+window.addEventListener("lordbless:assessment-payment-request-created", () => {
+    LORDBLESS_ASSESSMENT_FINANCE_LOADED = false;
+    LORDBLESS_ASSESSMENT_FINANCE_LOADED_AT = 0;
+    loadAdminAssessmentFinanceRequests();
+});
 
 
 /* =========================================
@@ -2029,9 +2096,11 @@ function renderFinanceView(
                                                     <th>Reference</th>
                                                     <th>Client</th>
                                                     <th>Journey</th>
-                                                    <th>Client payment report</th>
-                                                    <th>Amount</th>
-                                                    <th>Status</th>
+                                                    <th>Client ID</th>
+                                                    <th>Standard fee</th>
+                                                    <th>Discount</th>
+                                                    <th>Amount due</th>
+                                            <th>Payment / verification status</th>
                                                     <th>Action</th>
                                                 </tr>
 
@@ -2071,9 +2140,15 @@ function renderFinanceView(
                                                             </td>
 
                                                             <td>
-                                                                ${request.client_payment_reference
-                                                                    ? `<span>${escapeHTML(request.client_payment_date || "Date not supplied")}</span><br><small>${escapeHTML(request.client_payment_reference)}</small>`
-                                                                    : "—"}
+                                                                ${escapeHTML(request.clientCode || "ID pending")}
+                                                            </td>
+
+                                                            <td>
+                                                                ${escapeHTML(`${request.currency || "GHS"} ${Number(request.standardAmount ?? 1000).toFixed(2)}`)}
+                                                            </td>
+
+                                                            <td>
+                                                                ${escapeHTML(`${request.currency || "GHS"} ${Number(request.discountAmount ?? 0).toFixed(2)}`)}
                                                             </td>
 
                                                             <td>
@@ -2087,10 +2162,7 @@ function renderFinanceView(
                                                             </td>
 
                                                             <td>
-                                                                ${escapeHTML(
-                                                                    request.status ||
-                                                                    "Requested"
-                                                                )}
+                                                                ${escapeHTML(`${request.status || "Requested"} / ${request.verificationStatus || "not_verified"}`)}
                                                             </td>
 
                                                             <td>
@@ -2204,6 +2276,8 @@ function renderFinanceView(
 
         case "receipts": {
 
+            loadAdminAssessmentFinanceRequests();
+
             const requests =
                 getFinancePaymentRequests()
                     .filter(
@@ -2213,6 +2287,9 @@ function renderFinanceView(
                                 "verified" &&
                             !request.receiptId
                     );
+
+            const assessmentReceipts = LORDBLESS_ASSESSMENT_FINANCE_REQUESTS
+                .filter(request => request.receipt_number && request.verificationStatus === "verified");
 
 
             container.innerHTML = `
@@ -2336,6 +2413,35 @@ function renderFinanceView(
                             `
                     }
 
+                    ${assessmentReceipts.length ? `
+                        <section class="finance-content-card" aria-labelledby="assessment-receipts-heading">
+                            <div class="section-header">
+                                <div>
+                                    <p class="section-eyebrow">DATABASE-BACKED RECEIPTS</p>
+                                    <h3 id="assessment-receipts-heading">Initial Assessment receipts</h3>
+                                    <p class="section-description">Receipts are issued atomically after Finance verifies the payment.</p>
+                                </div>
+                            </div>
+                            <div class="lbc-finance-client-table-wrap">
+                                <table class="lbc-finance-client-table">
+                                    <thead><tr><th>Receipt</th><th>Payment request</th><th>Client</th><th>Standard fee</th><th>Discount</th><th>Amount paid</th><th>Verified by</th><th>Action</th></tr></thead>
+                                    <tbody>${assessmentReceipts.map(request => `
+                                        <tr>
+                                            <td>${escapeHTML(request.receipt_number)}</td>
+                                            <td>${escapeHTML(request.reference)}</td>
+                                            <td>${escapeHTML(request.clientName)}<br><small>${escapeHTML(request.clientCode || "ID pending")}</small></td>
+                                            <td>GHS ${Number(request.standardAmount ?? 1000).toFixed(2)}</td>
+                                            <td>GHS ${Number(request.discountAmount ?? 0).toFixed(2)}</td>
+                                            <td>GHS ${Number(request.amount_received ?? request.amount).toFixed(2)}</td>
+                                            <td>${escapeHTML(request.verifiedByName || "Finance")}</td>
+                                            <td><button type="button" class="button button-secondary" data-assessment-receipt-view="${escapeHTML(request.id)}">View receipt</button></td>
+                                        </tr>
+                                    `).join("")}</tbody>
+                                </table>
+                            </div>
+                        </section>
+                    ` : ""}
+
                 </div>
 
             `;
@@ -2395,6 +2501,48 @@ function renderFinanceView(
                     }
                 );
 
+            container.querySelectorAll("[data-assessment-receipt-view]").forEach(button => {
+                button.addEventListener("click", () => {
+                    const request = assessmentReceipts.find(item => item.id === button.dataset.assessmentReceiptView);
+                    if (!request || !window.LORDBLESS_RECEIPT_GENERATOR?.preview) return;
+
+                    const receipt = {
+                        id: request.receipt_number,
+                        receiptNumber: request.receipt_number,
+                        status: "issued",
+                        paymentRequestId: request.id,
+                        paymentRequestReference: request.reference,
+                        clientId: request.clientCode || "ID pending",
+                        clientName: request.clientName,
+                        transactionTitle: "Initial Assessment & 30-Minute Consultation",
+                        description: "Initial Assessment & 30-Minute Consultation",
+                        amount: Number(request.amount_received ?? request.amount),
+                        standardAmount: request.standardAmount,
+                        discountAmount: request.discountAmount,
+                        currency: "GHS",
+                        paymentDate: request.payment_date,
+                        paymentMethod: "Mobile Money",
+                        paymentReference: request.transaction_reference,
+                        issuedAt: request.receipt_issued_at,
+                        verifiedAt: request.verified_at,
+                        verifiedByName: request.verifiedByName
+                    };
+                    const overlay = document.createElement("div");
+                    overlay.className = "lbc-assessment-receipt-preview";
+                    overlay.style.cssText = "position:fixed;inset:0;z-index:10000;background:rgba(10,20,35,.72);display:grid;place-items:center;padding:20px;";
+                    overlay.innerHTML = `<div role="dialog" aria-modal="true" aria-label="Official payment receipt" style="background:#fff;max-width:900px;width:100%;max-height:92vh;overflow:auto;padding:24px;border-radius:12px"><button type="button" data-close-assessment-receipt style="float:right">Close</button><div data-assessment-receipt-content></div></div>`;
+                    document.body.appendChild(overlay);
+                    window.LORDBLESS_RECEIPT_GENERATOR.preview(
+                        overlay.querySelector("[data-assessment-receipt-content]"),
+                        receipt
+                    );
+                    overlay.querySelector("[data-close-assessment-receipt]").addEventListener("click", () => overlay.remove());
+                    overlay.addEventListener("click", event => {
+                        if (event.target === overlay) overlay.remove();
+                    });
+                });
+            });
+
             break;
 
         }
@@ -2405,6 +2553,8 @@ function renderFinanceView(
         ===================================== */
 
         case "reports":
+
+            loadAdminAssessmentFinanceRequests();
 
             if (
                 window.LORDBLESS_PAYMENT_HISTORY &&
@@ -7928,7 +8078,10 @@ function openEnquiry(
                 {
                     purpose: "initial_assessment_consultation",
                     initialAssessment: true,
-                    currency: "GHS"
+                    currency: "GHS",
+                    databaseAssessment: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+                        String(enquiry.client?.id || "")
+                    )
                 }
             );
         });

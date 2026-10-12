@@ -1288,7 +1288,7 @@
                                 ${isInitialAssessment && request.paymentInstructions ? `
                                     <div class="lbc-client-finance-payment-instructions">
                                         <strong>Payment instructions</strong>
-                                        <p>${escapeHTML(request.paymentInstructions)}</p>
+                                        <p style="white-space:pre-line">${escapeHTML(request.paymentInstructions)}</p>
                                     </div>
                                 ` : isInitialAssessment && request.databaseAssessment ? `
                                     <p class="lbc-client-finance-verification-message">
@@ -1298,7 +1298,7 @@
 
                                 ${isInitialAssessment ? `
                                     <p class="lbc-client-finance-verification-message">
-                                        Pay externally using the instructions above. After payment, contact Finance on WhatsApp and provide this request reference. Do not submit payment confirmation through this portal.
+                                        Pay externally. After payment, contact Finance on WhatsApp with this request reference. Finance must confirm receipt before full access is granted.
                                     </p>
                                 ` : ""}
 
@@ -1308,6 +1308,17 @@
                             <div
                                 class="lbc-client-finance-request-amount"
                             >
+
+                                ${isInitialAssessment ? `
+                                    <div>
+                                        <span>STANDARD FEE</span>
+                                        <strong>${escapeHTML(formatAmount(request.standardAmount ?? 1000, request.currency || "GHS"))}</strong>
+                                    </div>
+                                    <div>
+                                        <span>DISCOUNT</span>
+                                        <strong>${escapeHTML(formatAmount(request.discountAmount ?? 0, request.currency || "GHS"))}</strong>
+                                    </div>
+                                ` : ""}
 
                                 <span>
                                     AMOUNT DUE
@@ -2663,6 +2674,12 @@ function openReceiptViewer(
         receipt.transaction_reference ||
         "—";
 
+    const paymentRequestReference = receipt.paymentRequestReference || receipt.payment_request_reference || "—";
+    const standardAmount = Number(receipt.standardAmount ?? receipt.standard_amount ?? amount);
+    const discountAmount = Number(receipt.discountAmount ?? receipt.discount_amount ?? 0);
+    const verifiedAt = receipt.verifiedAt || receipt.verified_at || null;
+    const verifiedByName = receipt.verifiedByName || receipt.verified_by_name || "—";
+
 
     const description =
         receipt.description ||
@@ -2856,8 +2873,29 @@ function openReceiptViewer(
                             </strong>
                         </div>
 
+                        <div>
+                            <span>PAYMENT REQUEST REFERENCE</span>
+                            <strong>${escapeHTML(paymentRequestReference)}</strong>
+                        </div>
+
+                        <div>
+                            <span>VERIFIED BY</span>
+                            <strong>${escapeHTML(verifiedByName)}</strong>
+                        </div>
+
+                        <div>
+                            <span>VERIFICATION DATE</span>
+                            <strong>${escapeHTML(formatDate(verifiedAt))}</strong>
+                        </div>
+
                     </div>
 
+                </div>
+
+                <div class="lbc-client-receipt-section">
+                    <h4>FEE BREAKDOWN</h4>
+                    <p><strong>Standard fee:</strong> ${escapeHTML(formatAmount(standardAmount, currency))}</p>
+                    <p><strong>Discount:</strong> ${escapeHTML(formatAmount(discountAmount, currency))}</p>
                 </div>
 
 

@@ -757,15 +757,66 @@ function mapAssessmentPaymentRequest(payment) {
         reference: payment.reference,
         description: "Initial Assessment & 30-Minute Consultation",
         amount: Number(payment.amount || 1000),
+        standardAmount: Number(payment.standard_amount ?? payment.standardAmount ?? 1000),
+        discountAmount: Number(payment.discount_amount ?? payment.discountAmount ?? 0),
         currency: payment.currency || "GHS",
         verificationStatus: payment.verification_status,
         paymentInstructions: payment.payment_instructions || payment.paymentInstructions || "",
+        clientCode: payment.client_code || "ID pending",
+        verifiedByName: payment.verified_by_name || "",
+        receiptNumber: payment.receipt_number || null,
+        receiptIssuedAt: payment.receipt_issued_at || null,
         clientPaymentSubmittedAt: payment.client_payment_submitted_at,
         clientPaymentDate: payment.client_payment_date,
         clientPaymentReference: payment.client_payment_reference,
         requestedDate: payment.created_at,
         databaseAssessment: true
     };
+}
+
+
+function mapAssessmentPaymentReceipt(payment) {
+    if (!payment?.receipt_number || payment.verification_status !== "verified") return null;
+    return {
+        id: payment.receipt_number,
+        receiptNumber: payment.receipt_number,
+        paymentRequestId: payment.id,
+        paymentId: payment.id,
+        clientId: payment.client_code || "ID pending",
+        clientName: LORDBLESS_CLIENT_ACCOUNT.fullName || LORDBLESS_CLIENT_ACCOUNT.name || "Client",
+        paymentRequestReference: payment.reference,
+        description: "Initial Assessment & 30-Minute Consultation",
+        transactionTitle: "Initial Assessment & 30-Minute Consultation",
+        amount: Number(payment.amount_received ?? payment.amount),
+        standardAmount: Number(payment.standard_amount ?? 1000),
+        discountAmount: Number(payment.discount_amount ?? 0),
+        currency: payment.currency || "GHS",
+        paymentDate: payment.payment_date,
+        paymentMethod: "Mobile Money",
+        paymentReference: payment.transaction_reference,
+        issuedAt: payment.receipt_issued_at,
+        verifiedAt: payment.verified_at,
+        verifiedByName: payment.verified_by_name || "Finance",
+        status: "issued",
+        databaseAssessment: true
+    };
+}
+
+
+function getClientFinanceReceipts() {
+    const localReceipts = Array.isArray(window.LORDBLESS_RECEIPTS)
+        ? window.LORDBLESS_RECEIPTS
+        : [];
+    const databaseReceipt = mapAssessmentPaymentReceipt(clientAssessmentPayment);
+    if (!databaseReceipt) return localReceipts;
+
+    return [
+        ...localReceipts.filter(receipt =>
+            String(receipt?.receiptNumber || receipt?.receipt_number || "") !== databaseReceipt.receiptNumber &&
+            String(receipt?.paymentRequestId || receipt?.payment_request_id || "") !== databaseReceipt.paymentRequestId
+        ),
+        databaseReceipt
+    ];
 }
 
 
@@ -902,9 +953,8 @@ function renderClientOnboardingPanel() {
             <h2>Welcome, ${name}</h2>
             <span class="client-onboarding-status">PAYMENT AWAITING VERIFICATION</span>
             <h3>Initial Assessment &amp; 30-Minute Consultation</h3>
-            <p>Payment: ${escapeHTML(amount)}</p>
-            <p>Our Finance Team will confirm the payment before your full Client Portal is activated.</p>
-            <p>You do not need to make another payment while this payment is being reviewed.</p>
+            <p>Amount due: ${escapeHTML(amount)}</p>
+            <p>Finance will confirm received funds before your full Client Portal is activated. Contact Finance on WhatsApp if you have already paid.</p>
             ${notice}
         `;
     } else {
@@ -917,18 +967,11 @@ function renderClientOnboardingPanel() {
             <h2>Welcome, ${name}</h2>
             <span class="client-onboarding-status">${status}</span>
             <h3>Initial Assessment &amp; 30-Minute Consultation</h3>
-            <p>This fee covers the initial review of your information and documents, together with a 30-minute one-on-one consultation with a LORDBLESS CONSULTANCY consultant to discuss your profile, objectives, suitable options, and recommended next steps.</p>
-            <p><strong>Standard fee: GHS 1,000</strong>${request ? `<br>Amount due: ${escapeHTML(amount)}` : ""}</p>
+            <p><strong>Standard fee:</strong> ${escapeHTML(formatOnboardingAmount({ amount: request?.standardAmount ?? 1000, currency: "GHS" }))}</p>
+            <p><strong>Discount:</strong> ${escapeHTML(formatOnboardingAmount({ amount: request?.discountAmount ?? 0, currency: "GHS" }))}</p>
+            <p><strong>Amount due:</strong> ${request ? escapeHTML(amount) : "GHS 1,000.00"}</p>
             ${paymentAvailabilityNotice}
-            <strong>What this includes:</strong>
-            <ul class="client-onboarding-includes">
-                <li>Initial review of submitted information</li>
-                <li>Review of relevant documents</li>
-                <li>Assessment of profile and objectives</li>
-                <li>30-minute one-on-one consultation</li>
-                <li>Discussion of suitable options</li>
-                <li>Recommended next steps</li>
-            </ul>
+            <p>Open Finance for your saved payment reference and instructions. Pay externally, then contact Finance on WhatsApp. Full portal access follows Finance verification.</p>
             <div class="client-onboarding-actions">
                 <button type="button" class="primary-button" data-onboarding-action="view-payment">
                     VIEW PAYMENT REQUEST
@@ -1891,12 +1934,7 @@ payments:
         ? window.LORDBLESS_PAYMENTS
         : [],
 
-        receipts:
-            Array.isArray(
-                window.LORDBLESS_RECEIPTS
-            )
-                ? window.LORDBLESS_RECEIPTS
-                : []
+        receipts: getClientFinanceReceipts()
     }
 );
 }
