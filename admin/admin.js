@@ -682,6 +682,31 @@ async function requestClientPortalAccess(clientId, action = "create") {
         );
 
     if (error) throw error;
+
+    if (
+        action === "create" &&
+        ["invited", "activation_required"].includes(data?.access_status)
+    ) {
+        if (!hasPermission(getCurrentUser(), "finance.requests")) {
+            return { ...data, assessmentRequestSkipped: true };
+        }
+
+        const { data: assessmentData, error: assessmentError } = await lordblessSupabase.rpc(
+            "request_initial_assessment_payment",
+            { p_client_id: clientId }
+        );
+        if (assessmentError) {
+            return { ...data, assessmentRequestError: assessmentError.message || "The assessment request could not be ensured." };
+        }
+        LORDBLESS_ASSESSMENT_FINANCE_LOADED = false;
+        LORDBLESS_ASSESSMENT_FINANCE_LOADED_AT = 0;
+        return {
+            ...data,
+            assessmentPayment: assessmentData?.payment || null,
+            assessmentRequestCreated: Boolean(assessmentData?.created)
+        };
+    }
+
     return data;
 
 }
@@ -1146,15 +1171,24 @@ function mergeAdminAssessmentRequests(localRequests) {
         ? window.LORDBLESS_ASSESSMENT_FINANCE_HISTORY
         : [];
     const databaseClients = new Set(assessmentRequests.flatMap(request => [
-        String(request.clientId),
-        String(request.clientCode || ""),
-        String(request.clientUuid || "")
-    ]));
+        request.clientId,
+        request.clientCode,
+        request.clientUuid
+    ].filter(Boolean).map(String)));
+    const databaseReferences = new Set(assessmentRequests.map(request => String(request.reference || "")).filter(Boolean));
     return [
-        ...(Array.isArray(localRequests) ? localRequests : []).filter(request => !(
-            request?.purpose === "initial_assessment_consultation" &&
-            databaseClients.has(String(request.clientId))
-        )),
+        ...(Array.isArray(localRequests) ? localRequests : []).filter(request => {
+            const assessmentLike = request?.purpose === "initial_assessment_consultation" ||
+                request?.requestType === "initial_assessment_consultation" ||
+                /initial assessment.*consultation/i.test(String(request?.description || "")) ||
+                /initial assessment.*consultation/i.test(String(request?.requestType || ""));
+            const clientKeys = [request?.clientId, request?.client_id, request?.clientUuid, request?.client_code]
+                .filter(Boolean).map(String);
+            return !(assessmentLike && (
+                databaseReferences.has(String(request?.reference || request?.invoiceNumber || "")) ||
+                clientKeys.some(clientKey => databaseClients.has(clientKey))
+            ));
+        }),
         ...assessmentRequests
     ];
 }
@@ -1177,10 +1211,16 @@ function loadAdminAssessmentFinanceRequests() {
             LORDBLESS_ASSESSMENT_FINANCE_ERROR = error?.message || "";
             LORDBLESS_ASSESSMENT_FINANCE_REQUESTS = (data || []).map(item => ({
                 ...item,
-                clientId: item.client_code || "ID pending",
+                clientId: item.client_id,
                 clientUuid: item.client_id,
                 clientName: item.client_name,
                 clientCode: item.client_code || "ID pending",
+                description: "Initial Assessment & 30-Minute Consultation",
+                transactionTitle: "Initial Assessment & 30-Minute Consultation",
+                requestType: "initial_assessment_consultation",
+                createdAt: item.created_at,
+                paymentDate: item.payment_date,
+                transactionReference: item.transaction_reference,
                 standardAmount: Number(item.standard_amount ?? 1000),
                 discountAmount: Number(item.discount_amount ?? 0),
                 paymentInstructions: item.payment_instructions || "",
@@ -1208,7 +1248,8 @@ function loadAdminAssessmentFinanceRequests() {
                     receiptNumber: item.receipt_number,
                     paymentRequestId: item.id,
                     paymentId: item.id,
-                    clientId: item.clientCode,
+                    clientId: item.clientUuid,
+                    clientCode: item.clientCode,
                     clientName: item.clientName,
                     paymentRequestReference: item.reference,
                     description: "Initial Assessment & 30-Minute Consultation",
@@ -1229,12 +1270,15 @@ function loadAdminAssessmentFinanceRequests() {
         })
         .catch(error => {
             LORDBLESS_ASSESSMENT_FINANCE_ERROR = error?.message || "Assessment payment requests could not be loaded.";
+            LORDBLESS_ASSESSMENT_FINANCE_REQUESTS = [];
+            window.LORDBLESS_ASSESSMENT_FINANCE_HISTORY = [];
+            window.LORDBLESS_ASSESSMENT_FINANCE_RECEIPTS = [];
             LORDBLESS_ASSESSMENT_FINANCE_LOADED = true;
         })
         .finally(() => {
             LORDBLESS_ASSESSMENT_FINANCE_LOADING = false;
             LORDBLESS_ASSESSMENT_FINANCE_LOADED_AT = Date.now();
-            if (["verification", "receipts", "reports"].includes(LORDBLESS_FINANCE_ACTIVE_VIEW)) {
+            if (["overview", "payments", "verification", "receipts", "reports"].includes(LORDBLESS_FINANCE_ACTIVE_VIEW)) {
                 renderFinanceView(LORDBLESS_FINANCE_ACTIVE_VIEW);
             }
         });
@@ -1877,6 +1921,10 @@ function renderFinanceView(
 
     if (!container) {
         return;
+    }
+
+    if (["overview", "payments", "verification", "receipts", "reports"].includes(view)) {
+        loadAdminAssessmentFinanceRequests();
     }
 
 
@@ -2599,6 +2647,16 @@ function renderFinanceView(
                 "overview"
             );
 
+    }
+
+    if (
+        LORDBLESS_ASSESSMENT_FINANCE_ERROR &&
+        ["overview", "payments", "receipts", "reports"].includes(view)
+    ) {
+        container.insertAdjacentHTML(
+            "afterbegin",
+            `<p class="section-description" role="alert">Persistent initial assessment payments could not be loaded: ${escapeHTML(LORDBLESS_ASSESSMENT_FINANCE_ERROR)}</p>`
+        );
     }
 
 }
@@ -7516,6 +7574,7 @@ function renderAdminEnquiryClientView(enquiry, portalState) {
         try {
             const result = await requestClientPortalAccess(clientId);
             const portalAccount = await loadClientPortalAccount(clientId);
+            const assessmentState = await loadAdminAssessmentState(clientId);
             if (
                 enquiryModal.classList.contains("hidden") ||
                 enquiryModal.dataset.clientDetailsReference !== activeReference
@@ -7529,13 +7588,22 @@ function renderAdminEnquiryClientView(enquiry, portalState) {
 
             renderAdminEnquiryClientView(enquiry, {
                 ...portalState,
+                ...assessmentState,
                 account: portalAccount,
                 canCreate: false,
                 canResend: Boolean(
                     portalState.canManageAccess &&
                     portalAccount?.access_status === "invited"
                 ),
-                message: outcome
+                message: result?.assessmentRequestError
+                    ? `${outcome} Initial assessment request could not be ensured: ${result.assessmentRequestError}`
+                    : result?.assessmentRequestSkipped
+                        ? `${outcome} Finance payment-request permission is required to ensure the assessment request.`
+                        : assessmentState.assessmentPayment || result?.assessmentPayment
+                            ? `${outcome} Initial assessment payment request is ready in Finance.`
+                            : assessmentState.assessmentError
+                                ? `${outcome} Assessment request status: ${assessmentState.assessmentError}`
+                                : outcome
             });
         } catch (error) {
             if (
@@ -7628,6 +7696,29 @@ async function loadAdminAssessmentState(clientId) {
     }
     result.assessmentPayment = payment || null;
 
+    if (!payment && hasPermission(getCurrentUser(), "finance.requests")) {
+        const { data: account, error: accountError } = await lordblessSupabase
+            .from("client_accounts")
+            .select("access_status")
+            .eq("client_id", clientId)
+            .maybeSingle();
+        if (accountError) {
+            result.assessmentError = accountError.message || "Client onboarding status is unavailable.";
+        } else if (["invited", "activation_required"].includes(account?.access_status)) {
+            const { data: ensuredRequest, error: ensureError } = await lordblessSupabase.rpc(
+                "request_initial_assessment_payment",
+                { p_client_id: clientId }
+            );
+            if (ensureError) {
+                result.assessmentError = ensureError.message || "The initial assessment request could not be ensured.";
+            } else {
+                result.assessmentPayment = ensuredRequest?.payment || null;
+                LORDBLESS_ASSESSMENT_FINANCE_LOADED = false;
+                LORDBLESS_ASSESSMENT_FINANCE_LOADED_AT = 0;
+            }
+        }
+    }
+
     if (!hasPermission(getCurrentUser(), "consultations.manage")) return result;
     const { data: meeting, error: meetingError } = await lordblessSupabase
         .from("client_consultation_meetings")
@@ -7686,29 +7777,52 @@ async function sendConsultationEmail(notificationId) {
 
 
 function bindAdminAssessmentActions(enquiry, portalState) {
-    const createButton = modalContent.querySelector("[data-assessment-create]");
-    if (createButton) createButton.addEventListener("click", async () => {
-        const clientId = createButton.dataset.clientId;
-        const message = modalContent.querySelector("[data-assessment-message]");
-        createButton.disabled = true;
-        if (message) message.textContent = "Creating the assessment request…";
-        try {
-            const { data, error } = await lordblessSupabase.rpc(
-                "request_initial_assessment_payment",
-                { p_client_id: clientId }
-            );
-            if (error) throw error;
-            LORDBLESS_ASSESSMENT_FINANCE_LOADED = false;
-            await refreshAdminClientAssessment(
-                enquiry,
-                portalState,
-                data?.created ? "GHS 1,000 assessment request created." : "The existing assessment request was reused."
-            );
-        } catch (error) {
-            if (message) message.textContent = error?.message || "Unable to create the assessment request.";
-            createButton.disabled = false;
-        }
-    });
+    const requestForm = modalContent.querySelector("[data-assessment-request-form]");
+    if (requestForm) {
+        const discountInput = requestForm.querySelector('[name="discount_amount"]');
+        const payableAmount = requestForm.querySelector("[data-assessment-payable-amount]");
+        const updatePayablePreview = () => {
+            const discount = Number(discountInput?.value || 0);
+            if (payableAmount) payableAmount.textContent = Math.max(0, 1000 - discount).toFixed(2);
+        };
+        discountInput?.addEventListener("input", updatePayablePreview);
+        requestForm.addEventListener("submit", async event => {
+            event.preventDefault();
+            const button = requestForm.querySelector('[type="submit"]');
+            const message = modalContent.querySelector("[data-assessment-message]");
+            const discount = Number(discountInput?.value);
+            if (!Number.isFinite(discount) || discount < 0 || discount >= 1000 || Math.round(discount * 100) !== discount * 100) {
+                if (message) message.textContent = "Enter a discount from GHS 0.00 to less than GHS 1,000.00, with up to two decimal places.";
+                return;
+            }
+
+            button.disabled = true;
+            if (message) message.textContent = requestForm.dataset.action === "update"
+                ? "Updating the existing payment request…"
+                : "Creating the assessment payment request…";
+            try {
+                const { data, error } = requestForm.dataset.action === "update"
+                    ? await lordblessSupabase.rpc("update_initial_assessment_payment_discount", {
+                        p_payment_id: requestForm.dataset.paymentId,
+                        p_discount_amount: discount
+                    })
+                    : await lordblessSupabase.rpc("request_initial_assessment_payment", {
+                        p_client_id: requestForm.dataset.clientId,
+                        p_discount_amount: discount
+                    });
+                if (error) throw error;
+
+                LORDBLESS_ASSESSMENT_FINANCE_LOADED = false;
+                const successMessage = requestForm.dataset.action === "update"
+                    ? data?.updated ? "The existing payment request was updated." : "The existing request already has that amount."
+                    : data?.created ? "The assessment payment request was created." : "The existing payment request was reused without changing its saved amount.";
+                await refreshAdminClientAssessment(enquiry, portalState, successMessage);
+            } catch (error) {
+                if (message) message.textContent = error?.message || "Unable to save the assessment payment request.";
+                button.disabled = false;
+            }
+        });
+    }
 
     const instructionsForm = modalContent.querySelector("[data-assessment-instructions-form]");
     if (instructionsForm) instructionsForm.addEventListener("submit", async event => {
@@ -8037,12 +8151,22 @@ function openEnquiry(
 
             try {
                 const result = await requestClientPortalAccess(clientId);
+                const assessmentState = await loadAdminAssessmentState(clientId);
                 if (message) {
-                    message.textContent = result?.already_linked
+                    const accessMessage = result?.already_linked
                         ? "This client already has linked Client Portal access."
                         : result?.existing_auth_user_linked
                             ? "The existing Auth account was linked to this client; no duplicate identity was created."
                             : "Client Portal invitation created successfully.";
+                    message.textContent = result?.assessmentRequestError
+                        ? `${accessMessage} Initial assessment request could not be ensured: ${result.assessmentRequestError}`
+                        : result?.assessmentRequestSkipped
+                            ? `${accessMessage} Finance payment-request permission is required to ensure the assessment request.`
+                            : assessmentState.assessmentPayment || result?.assessmentPayment
+                                ? `${accessMessage} Initial assessment payment request is ready in Finance.`
+                                : assessmentState.assessmentError
+                                    ? `${accessMessage} Assessment request status: ${assessmentState.assessmentError}`
+                                    : accessMessage;
                 }
                 portalAccessButton.textContent = "Portal Access Linked";
             } catch (error) {

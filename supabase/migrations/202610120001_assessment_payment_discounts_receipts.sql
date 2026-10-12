@@ -6,7 +6,9 @@ alter table public.client_assessment_payments
     add column if not exists receipt_number text,
     add column if not exists receipt_issued_at timestamptz,
     add column if not exists verified_by_name text,
-    add column if not exists client_code text;
+    add column if not exists client_code text,
+    add column if not exists discount_authorized_by uuid references public.staff_profiles(user_id),
+    add column if not exists discount_authorized_at timestamptz;
 
 alter table public.client_assessment_payments
     drop constraint if exists client_assessment_payments_amount_check;
@@ -55,15 +57,13 @@ create unique index if not exists client_assessment_payments_receipt_number_uidx
 update public.client_assessment_payments p
 set payment_instructions = concat_ws(E'\n',
         'Initial Assessment & Consultation',
-        'Standard fee: GHS ' || to_char(p.standard_amount, 'FM999,999,990.00'),
-        'Discount: GHS ' || to_char(p.discount_amount, 'FM999,999,990.00'),
-        'Amount due: GHS ' || to_char(p.amount, 'FM999,999,990.00'),
+        'Amount payable: GHS ' || to_char(p.amount, 'FM999,999,990.00'),
         'How to pay',
         '- Method: Mobile Money',
         '- Number: 0549617222',
         '- Account name: Aboagye Richard Atta',
-        'After payment: Contact Finance on WhatsApp and provide payment reference ' || p.reference || '.',
-        'Important: Finance must confirm receipt before full Client Portal access is granted.'
+        'After payment: Send your payment confirmation screenshot to LORDBLESS CONSULTANCY via WhatsApp and provide payment reference ' || p.reference || '.',
+        'Finance must verify payment before your consultation can be scheduled.'
     ),
     updated_at = now()
 where nullif(trim(coalesce(p.payment_instructions, '')), '') is null;
@@ -118,13 +118,15 @@ begin
     if not found then
         insert into public.client_assessment_payments (
             client_id, client_name, client_code, standard_amount, discount_amount,
-            amount, currency, created_by
+            discount_authorized_by, discount_authorized_at, amount, currency, created_by
         ) values (
             p_client_id,
             coalesce(nullif(client_record.full_name, ''), 'Client'),
             to_jsonb(client_record)->>'client_code',
             1000,
             requested_discount,
+            case when requested_discount > 0 then auth.uid() else null end,
+            case when requested_discount > 0 then now() else null end,
             1000 - requested_discount,
             'GHS',
             auth.uid()
@@ -152,15 +154,13 @@ begin
         update public.client_assessment_payments p
         set payment_instructions = concat_ws(E'\n',
                 'Initial Assessment & Consultation',
-                'Standard fee: GHS ' || to_char(payment_record.standard_amount, 'FM999,999,990.00'),
-                'Discount: GHS ' || to_char(payment_record.discount_amount, 'FM999,999,990.00'),
-                'Amount due: GHS ' || to_char(payment_record.amount, 'FM999,999,990.00'),
+                'Amount payable: GHS ' || to_char(payment_record.amount, 'FM999,999,990.00'),
                 'How to pay',
                 '- Method: Mobile Money',
                 '- Number: 0549617222',
                 '- Account name: Aboagye Richard Atta',
-                'After payment: Contact Finance on WhatsApp and provide payment reference ' || payment_record.reference || '.',
-                'Important: Finance must confirm receipt before full Client Portal access is granted.'
+                'After payment: Send your payment confirmation screenshot to LORDBLESS CONSULTANCY via WhatsApp and provide payment reference ' || payment_record.reference || '.',
+                'Finance must verify payment before your consultation can be scheduled.'
             ),
             updated_at = now()
         where p.id = payment_record.id
@@ -181,6 +181,65 @@ security definer
 set search_path = pg_catalog, public, auth, private
 as $$
     select public.request_initial_assessment_payment(p_client_id, 0::numeric);
+$$;
+
+create or replace function public.update_initial_assessment_payment_discount(
+    p_payment_id uuid,
+    p_discount_amount numeric
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, public, auth, private
+as $$
+declare
+    payment_record public.client_assessment_payments%rowtype;
+    requested_discount numeric(12,2);
+begin
+    if auth.uid() is null or not private.has_permission('finance.requests') then
+        raise exception 'Finance payment-request permission is required.' using errcode = '42501';
+    end if;
+
+    if p_discount_amount is null or p_discount_amount <> round(p_discount_amount, 2) then
+        raise exception 'Enter a discount in GHS with no more than two decimal places.' using errcode = '22023';
+    end if;
+
+    requested_discount := p_discount_amount;
+    if requested_discount < 0 or requested_discount >= 1000 then
+        raise exception 'The discount must be at least GHS 0 and less than GHS 1,000.' using errcode = '22023';
+    end if;
+
+    select * into payment_record
+    from public.client_assessment_payments p
+    where p.id = p_payment_id
+    for update;
+
+    if not found then
+        raise exception 'The assessment payment request was not found.' using errcode = 'P0002';
+    end if;
+
+    if payment_record.status <> 'requested'
+       or payment_record.verification_status in ('pending', 'verified')
+       or payment_record.client_payment_submitted_at is not null then
+        raise exception 'The assessment request can only be changed before payment is submitted or verified.' using errcode = '22023';
+    end if;
+
+    if payment_record.discount_amount = requested_discount then
+        return jsonb_build_object('updated', false, 'payment', to_jsonb(payment_record));
+    end if;
+
+    update public.client_assessment_payments p
+    set standard_amount = 1000,
+        discount_amount = requested_discount,
+        amount = 1000 - requested_discount,
+        discount_authorized_by = auth.uid(),
+        discount_authorized_at = now(),
+        updated_at = now()
+    where p.id = p_payment_id
+    returning * into payment_record;
+
+    return jsonb_build_object('updated', true, 'payment', to_jsonb(payment_record));
+end;
 $$;
 
 create or replace function public.verify_initial_assessment_payment(
@@ -317,6 +376,8 @@ revoke all on function public.request_initial_assessment_payment(uuid, numeric) 
 grant execute on function public.request_initial_assessment_payment(uuid, numeric) to authenticated;
 revoke all on function public.request_initial_assessment_payment(uuid) from public, anon;
 grant execute on function public.request_initial_assessment_payment(uuid) to authenticated;
+revoke all on function public.update_initial_assessment_payment_discount(uuid, numeric) from public, anon;
+grant execute on function public.update_initial_assessment_payment_discount(uuid, numeric) to authenticated;
 revoke all on function public.verify_initial_assessment_payment(uuid, numeric, date, text, text) from public, anon;
 grant execute on function public.verify_initial_assessment_payment(uuid, numeric, date, text, text) to authenticated;
 revoke all on function public.submit_initial_assessment_payment(uuid, date, text) from public, anon, authenticated;

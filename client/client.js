@@ -953,8 +953,8 @@ function renderClientOnboardingPanel() {
             <h2>Welcome, ${name}</h2>
             <span class="client-onboarding-status">PAYMENT AWAITING VERIFICATION</span>
             <h3>Initial Assessment &amp; 30-Minute Consultation</h3>
-            <p>Amount due: ${escapeHTML(amount)}</p>
-            <p>Finance will confirm received funds before your full Client Portal is activated. Contact Finance on WhatsApp if you have already paid.</p>
+            <p>Amount payable: ${escapeHTML(amount)}</p>
+            <p>Finance must verify payment before your consultation can be scheduled and full Client Portal access is activated.</p>
             ${notice}
         `;
     } else {
@@ -967,11 +967,9 @@ function renderClientOnboardingPanel() {
             <h2>Welcome, ${name}</h2>
             <span class="client-onboarding-status">${status}</span>
             <h3>Initial Assessment &amp; 30-Minute Consultation</h3>
-            <p><strong>Standard fee:</strong> ${escapeHTML(formatOnboardingAmount({ amount: request?.standardAmount ?? 1000, currency: "GHS" }))}</p>
-            <p><strong>Discount:</strong> ${escapeHTML(formatOnboardingAmount({ amount: request?.discountAmount ?? 0, currency: "GHS" }))}</p>
-            <p><strong>Amount due:</strong> ${request ? escapeHTML(amount) : "GHS 1,000.00"}</p>
+            <p><strong>Amount payable:</strong> ${request ? escapeHTML(amount) : "GHS 1,000.00"}</p>
             ${paymentAvailabilityNotice}
-            <p>Open Finance for your saved payment reference and instructions. Pay externally, then contact Finance on WhatsApp. Full portal access follows Finance verification.</p>
+            <p>Pay externally. Send your payment confirmation screenshot to LORDBLESS CONSULTANCY on WhatsApp. Finance must verify payment before your consultation can be scheduled.</p>
             <div class="client-onboarding-actions">
                 <button type="button" class="primary-button" data-onboarding-action="view-payment">
                     VIEW PAYMENT REQUEST

@@ -188,7 +188,15 @@
         if (!model.canReadAssessment) {
             return `<section class="detail-card full-width"><h3>Initial Assessment &amp; Consultation</h3><p>Finance permission is required to view this assessment payment.</p></section>`;
         }
-        const canCreate = Boolean(model.canCreateAssessment && !payment && clientId);
+        const canManagePaymentRequest = Boolean(
+            model.canCreateAssessment &&
+            clientId &&
+            (!payment || (
+                payment.status === "requested" &&
+                !payment.client_payment_submitted_at &&
+                !["pending", "verified"].includes(payment.verification_status)
+            ))
+        );
         const canSetInstructions = Boolean(
             model.canCreateAssessment && payment?.status === "requested"
         );
@@ -198,6 +206,9 @@
         const outstanding = payment?.status === "paid" && payment?.verification_status === "verified"
             ? 0
             : Math.max(0, Number(payment?.amount || 1000) - Number(payment?.amount_received || 0));
+        const standardAmount = Number(payment?.standard_amount ?? 1000);
+        const discountAmount = Number(payment?.discount_amount ?? 0);
+        const payableAmount = Number(payment?.amount ?? standardAmount);
         const paymentStatus = !payment
             ? "Not requested"
             : payment.status === "paid" && payment.verification_status === "verified"
@@ -211,7 +222,9 @@
             <section class="detail-card full-width" aria-labelledby="client-assessment-title">
                 <h3 id="client-assessment-title">Initial Assessment &amp; Consultation</h3>
                 <div class="detail-row"><span>Assessment service</span><strong>Initial Assessment &amp; 30-Minute Consultation</strong></div>
-                <div class="detail-row"><span>Fee</span><strong>GHS 1,000.00</strong></div>
+                <div class="detail-row"><span>Standard fee</span><strong>GHS ${standardAmount.toFixed(2)}</strong></div>
+                <div class="detail-row"><span>Authorized discount</span><strong>GHS ${discountAmount.toFixed(2)}</strong></div>
+                <div class="detail-row"><span>Amount payable</span><strong>GHS ${payableAmount.toFixed(2)}</strong></div>
                 <div class="detail-row"><span>Payment status</span><strong>${escapeClientDetails(paymentStatus)}</strong></div>
                 <div class="detail-row"><span>Outstanding amount</span><strong>GHS ${outstanding.toFixed(2)}</strong></div>
                 <div class="detail-row"><span>Verification status</span><strong>${escapeClientDetails(payment?.verification_status || "Not verified")}</strong></div>
@@ -230,7 +243,15 @@
                     </form>
                 ` : ""}
                 ${model.assessmentError ? `<p role="alert">${escapeClientDetails(model.assessmentError)}</p>` : ""}
-                ${canCreate ? `<button type="button" class="button button-primary" data-assessment-create data-client-id="${escapeClientDetails(clientId)}">CREATE GHS 1,000 ASSESSMENT REQUEST</button>` : ""}
+                ${canManagePaymentRequest ? `
+                    <form data-assessment-request-form data-client-id="${escapeClientDetails(clientId)}" data-payment-id="${escapeClientDetails(payment?.id || "")}" data-action="${payment ? "update" : "create"}">
+                        <label>OPTIONAL DISCOUNT (GHS)
+                            <input name="discount_amount" type="number" min="0" max="999.99" step="0.01" value="${discountAmount.toFixed(2)}" required>
+                        </label>
+                        <div class="detail-row"><span>Final amount payable</span><strong>GHS <span data-assessment-payable-amount>${payableAmount.toFixed(2)}</span></strong></div>
+                        <button type="submit" class="button button-primary">${payment ? "UPDATE EXISTING PAYMENT REQUEST" : "CREATE ASSESSMENT PAYMENT REQUEST"}</button>
+                    </form>
+                ` : ""}
                 <div class="detail-row"><span>Meeting status</span><strong>${escapeClientDetails(meetingStatus)}</strong></div>
                 ${meeting ? `
                     <div class="detail-row"><span>Scheduled meeting</span><strong>${escapeClientDetails(meetingTimeLabel(meeting))}</strong></div>

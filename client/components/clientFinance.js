@@ -1208,6 +1208,10 @@
                         String(request.verificationStatus || "").toLowerCase() === "pending" ||
                         Boolean(request.clientPaymentSubmittedAt);
 
+                    const paymentWhatsAppMessage = encodeURIComponent(
+                        `I have paid for the Initial Assessment & Consultation. Payment reference: ${request.reference || ""}`
+                    );
+
                     const statusLabel =
                         isAwaitingVerification
                             ? "Awaiting Verification"
@@ -1277,29 +1281,19 @@
                                         : ""
                                 }
 
-                                ${isInitialAssessment && isAwaitingVerification ? `
-                                    <p class="lbc-client-finance-verification-message">
-                                        Our Finance Team will confirm the payment before your full Client Portal is activated.
-                                        <br><br>
-                                        Contact Finance on WhatsApp if you have already paid. You do not need to make another payment while this request is being reviewed.
-                                    </p>
-                                ` : ""}
-
-                                ${isInitialAssessment && request.paymentInstructions ? `
+                                ${isInitialAssessment ? `
+                                    <div class="lbc-client-finance-payment-instructions">
+                                        <strong>How to pay</strong>
+                                        <p>Mobile Money: 0549617222</p>
+                                        <p>Account name: Aboagye Richard Atta</p>
+                                        <p>Pay externally, then send your payment confirmation screenshot to LORDBLESS CONSULTANCY via <a href="https://wa.me/4915754780010?text=${paymentWhatsAppMessage}" target="_blank" rel="noopener noreferrer">WhatsApp</a>.</p>
+                                        <p>Finance must verify payment before your consultation can be scheduled.</p>
+                                    </div>
+                                ` : request.paymentInstructions ? `
                                     <div class="lbc-client-finance-payment-instructions">
                                         <strong>Payment instructions</strong>
                                         <p style="white-space:pre-line">${escapeHTML(request.paymentInstructions)}</p>
                                     </div>
-                                ` : isInitialAssessment && request.databaseAssessment ? `
-                                    <p class="lbc-client-finance-verification-message">
-                                        Payment instructions are being prepared by Finance. Please wait for the approved instructions before making payment.
-                                    </p>
-                                ` : ""}
-
-                                ${isInitialAssessment ? `
-                                    <p class="lbc-client-finance-verification-message">
-                                        Pay externally. After payment, contact Finance on WhatsApp with this request reference. Finance must confirm receipt before full access is granted.
-                                    </p>
                                 ` : ""}
 
                             </div>
@@ -1309,19 +1303,8 @@
                                 class="lbc-client-finance-request-amount"
                             >
 
-                                ${isInitialAssessment ? `
-                                    <div>
-                                        <span>STANDARD FEE</span>
-                                        <strong>${escapeHTML(formatAmount(request.standardAmount ?? 1000, request.currency || "GHS"))}</strong>
-                                    </div>
-                                    <div>
-                                        <span>DISCOUNT</span>
-                                        <strong>${escapeHTML(formatAmount(request.discountAmount ?? 0, request.currency || "GHS"))}</strong>
-                                    </div>
-                                ` : ""}
-
                                 <span>
-                                    AMOUNT DUE
+                                    ${isInitialAssessment ? "AMOUNT PAYABLE" : "AMOUNT DUE"}
                                 </span>
 
                                 <strong>
@@ -2675,8 +2658,6 @@ function openReceiptViewer(
         "—";
 
     const paymentRequestReference = receipt.paymentRequestReference || receipt.payment_request_reference || "—";
-    const standardAmount = Number(receipt.standardAmount ?? receipt.standard_amount ?? amount);
-    const discountAmount = Number(receipt.discountAmount ?? receipt.discount_amount ?? 0);
     const verifiedAt = receipt.verifiedAt || receipt.verified_at || null;
     const verifiedByName = receipt.verifiedByName || receipt.verified_by_name || "—";
 
@@ -2891,13 +2872,6 @@ function openReceiptViewer(
                     </div>
 
                 </div>
-
-                <div class="lbc-client-receipt-section">
-                    <h4>FEE BREAKDOWN</h4>
-                    <p><strong>Standard fee:</strong> ${escapeHTML(formatAmount(standardAmount, currency))}</p>
-                    <p><strong>Discount:</strong> ${escapeHTML(formatAmount(discountAmount, currency))}</p>
-                </div>
-
 
                 <div
                     class="lbc-client-receipt-amount"

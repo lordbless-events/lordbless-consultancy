@@ -125,6 +125,20 @@ const PAYMENT_STATE = {
     }
 
 
+    function addCurrencyAmount(totals, currency, amount) {
+        const code = String(currency || "EUR").toUpperCase();
+        totals[code] = (totals[code] || 0) + (Number(amount) || 0);
+    }
+
+
+    function formatCurrencyBreakdown(totals) {
+        const entries = Object.entries(totals || {}).filter(([, amount]) => amount !== 0);
+        return entries.length
+            ? entries.map(([currency, amount]) => formatCurrency(amount, currency)).join(" · ")
+            : formatCurrency(0, "GHS");
+    }
+
+
     function getTransactionId(transaction) {
 
         return (
@@ -188,11 +202,37 @@ const PAYMENT_STATE = {
         const data =
             getPaymentData();
 
-        return Array.isArray(
+        const localRequests = Array.isArray(
             data.paymentRequests
         )
             ? data.paymentRequests
             : [];
+
+        const assessmentRequests = Array.isArray(window.LORDBLESS_ASSESSMENT_FINANCE_HISTORY)
+            ? window.LORDBLESS_ASSESSMENT_FINANCE_HISTORY
+            : [];
+        const assessmentClients = new Set(assessmentRequests.flatMap(request => [
+            request.clientId,
+            request.clientCode,
+            request.clientUuid
+        ].filter(Boolean).map(String)));
+        const assessmentReferences = new Set(assessmentRequests.map(request => String(request.reference || "")).filter(Boolean));
+
+        return [
+            ...localRequests.filter(request => {
+                const assessmentLike = request?.purpose === "initial_assessment_consultation" ||
+                    request?.requestType === "initial_assessment_consultation" ||
+                    /initial assessment.*consultation/i.test(String(request?.description || "")) ||
+                    /initial assessment.*consultation/i.test(String(request?.requestType || ""));
+                const clientKeys = [request?.clientId, request?.client_id, request?.clientUuid, request?.client_code]
+                    .filter(Boolean).map(String);
+                return !(assessmentLike && (
+                    assessmentReferences.has(String(request?.reference || request?.invoiceNumber || "")) ||
+                    clientKeys.some(clientKey => assessmentClients.has(clientKey))
+                ));
+            }),
+            ...assessmentRequests
+        ];
 
     }
 
@@ -375,7 +415,7 @@ const PAYMENT_STATE = {
             );
 
 
-        return records.reduce(
+        const paidRecords = records.reduce(
             (
                 total,
                 record
@@ -409,6 +449,66 @@ const PAYMENT_STATE = {
             0
         );
 
+        const paidAssessmentRequests = getClientPaymentRequests(clientId, transactionId)
+            .filter(request => {
+                if (!request.databaseAssessment || String(request.status || "").toLowerCase() !== "paid") {
+                    return false;
+                }
+                return !records.some(record =>
+                    String(record.paymentRequestId || record.requestId || "") === String(request.id) ||
+                    Boolean(request.reference && record.reference === request.reference)
+                );
+            });
+
+        return paidRecords + paidAssessmentRequests.reduce(
+            (total, request) => total + (Number(request.amount_received ?? request.amount) || 0),
+            0
+        );
+
+    }
+
+
+    function getPaidCurrencyTotals(clientId, transactionId = null) {
+        const records = getClientPaymentRecords(clientId, transactionId);
+        const requests = getClientPaymentRequests(clientId, transactionId);
+        const totals = {};
+
+        records.forEach(record => {
+            if (["paid", "verified", "completed"].includes(String(record.status || "").toLowerCase())) {
+                addCurrencyAmount(totals, record.currency, record.amount);
+            }
+        });
+
+        requests.forEach(request => {
+            if (!request.databaseAssessment || String(request.status || "").toLowerCase() !== "paid") return;
+            const alreadyRecorded = records.some(record =>
+                String(record.paymentRequestId || record.requestId || "") === String(request.id) ||
+                Boolean(request.reference && record.reference === request.reference)
+            );
+            if (!alreadyRecorded) {
+                addCurrencyAmount(totals, request.currency, request.amount_received ?? request.amount);
+            }
+        });
+
+        return totals;
+    }
+
+
+    function getRequestedCurrencyTotals(clientId, transactionId = null) {
+        const totals = {};
+        getClientPaymentRequests(clientId, transactionId).forEach(request => {
+            addCurrencyAmount(totals, request.currency, request.amount);
+        });
+        return totals;
+    }
+
+
+    function subtractCurrencyTotals(requested, paid) {
+        const outstanding = {};
+        new Set([...Object.keys(requested || {}), ...Object.keys(paid || {})]).forEach(currency => {
+            outstanding[currency] = Math.max(0, (requested[currency] || 0) - (paid[currency] || 0));
+        });
+        return outstanding;
     }
 
 
@@ -456,13 +556,6 @@ const PAYMENT_STATE = {
             );
 
 
-        const records =
-            getClientPaymentRecords(
-                clientId,
-                transactionId
-            );
-
-
         const totalRequested =
             requests.reduce(
                 (
@@ -482,40 +575,7 @@ const PAYMENT_STATE = {
             );
 
 
-        const totalPaid =
-            records.reduce(
-                (
-                    total,
-                    record
-                ) => {
-
-                    const status =
-                        String(
-                            record.status || ""
-                        ).toLowerCase();
-
-
-                    if (
-                        status === "paid" ||
-                        status === "verified" ||
-                        status === "completed"
-                    ) {
-
-                        return total +
-                            (
-                                Number(
-                                    record.amount
-                                ) || 0
-                            );
-
-                    }
-
-
-                    return total;
-
-                },
-                0
-            );
+        const totalPaid = getPaidAmount(clientId, transactionId);
 
 
         return Math.max(
@@ -580,6 +640,9 @@ const PAYMENT_STATE = {
                     clientId
                 );
 
+            const requestedByCurrency = getRequestedCurrencyTotals(clientId);
+            const paidByCurrency = getPaidCurrencyTotals(clientId);
+
             return {
 
                 client,
@@ -598,7 +661,13 @@ const PAYMENT_STATE = {
 
                 requested,
 
-                outstanding
+                outstanding,
+
+                requestedByCurrency,
+
+                paidByCurrency,
+
+                outstandingByCurrency: subtractCurrencyTotals(requestedByCurrency, paidByCurrency)
 
             };
 
@@ -631,26 +700,12 @@ const PAYMENT_STATE = {
             );
 
 
-        const totalPaid =
-            paymentClients.reduce(
-                (
-                    total,
-                    item
-                ) =>
-                    total + item.paid,
-                0
-            );
-
-
-        const totalOutstanding =
-            paymentClients.reduce(
-                (
-                    total,
-                    item
-                ) =>
-                    total + item.outstanding,
-                0
-            );
+        const totalPaidByCurrency = {};
+        const totalOutstandingByCurrency = {};
+        paymentClients.forEach(item => {
+            Object.entries(item.paidByCurrency).forEach(([currency, amount]) => addCurrencyAmount(totalPaidByCurrency, currency, amount));
+            Object.entries(item.outstandingByCurrency).forEach(([currency, amount]) => addCurrencyAmount(totalOutstandingByCurrency, currency, amount));
+        });
 
 
         const pendingRequests =
@@ -665,8 +720,10 @@ const PAYMENT_STATE = {
                             String(
                                 request.status ||
                                 ""
-                            ).toLowerCase() ===
-                            "pending"
+                            ).toLowerCase() === "pending" ||
+                            ["requested", "awaiting_verification", "viewed", "overdue"].includes(
+                                String(request.status || "").toLowerCase()
+                            )
                     ).length,
                 0
             );
@@ -710,7 +767,7 @@ const PAYMENT_STATE = {
                         </span>
 
                         <strong>
-                            ${formatCurrency(totalPaid)}
+                            ${formatCurrencyBreakdown(totalPaidByCurrency)}
                         </strong>
 
                     </div>
@@ -723,9 +780,7 @@ const PAYMENT_STATE = {
                         </span>
 
                         <strong>
-                            ${formatCurrency(
-                                totalOutstanding
-                            )}
+                            ${formatCurrencyBreakdown(totalOutstandingByCurrency)}
                         </strong>
 
                     </div>
@@ -857,9 +912,7 @@ const PAYMENT_STATE = {
                     </small>
 
                     <strong>
-                        ${formatCurrency(
-                            item.paid
-                        )}
+                        ${formatCurrencyBreakdown(item.paidByCurrency)}
                     </strong>
 
                 </span>
@@ -872,9 +925,7 @@ const PAYMENT_STATE = {
                     </small>
 
                     <strong>
-                        ${formatCurrency(
-                            item.outstanding
-                        )}
+                        ${formatCurrencyBreakdown(item.outstandingByCurrency)}
                     </strong>
 
                 </span>
@@ -1061,9 +1112,7 @@ const PAYMENT_STATE = {
                         </span>
 
                         <strong>
-                            ${formatCurrency(
-                                item.requested
-                            )}
+                            ${formatCurrencyBreakdown(item.requestedByCurrency)}
                         </strong>
 
                     </div>
@@ -1076,9 +1125,7 @@ const PAYMENT_STATE = {
                         </span>
 
                         <strong>
-                            ${formatCurrency(
-                                item.paid
-                            )}
+                            ${formatCurrencyBreakdown(item.paidByCurrency)}
                         </strong>
 
                     </div>
@@ -1091,9 +1138,7 @@ const PAYMENT_STATE = {
                         </span>
 
                         <strong>
-                            ${formatCurrency(
-                                item.outstanding
-                            )}
+                            ${formatCurrencyBreakdown(item.outstandingByCurrency)}
                         </strong>
 
                     </div>

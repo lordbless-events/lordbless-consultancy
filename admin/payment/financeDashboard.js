@@ -58,6 +58,7 @@
     const STATUS_LABELS = {
 
         requested: "Requested",
+        awaiting_verification: "Awaiting Verification",
         viewed: "Viewed",
         paid: "Paid",
         overdue: "Overdue",
@@ -167,6 +168,8 @@
 
     function getPaymentRequests() {
 
+        let requests = [];
+
         if (
             window.LORDBLESS_PAYMENT_BRIDGE &&
             typeof
@@ -178,42 +181,58 @@
                 window.LORDBLESS_PAYMENT_BRIDGE
                     .load();
 
-            return Array.isArray(
+            requests = Array.isArray(
                 data.paymentRequests
             )
                 ? data.paymentRequests
                 : [];
 
-        }
-
-
-        if (
+        } else if (
             Array.isArray(
                 window.LORDBLESS_PAYMENT_REQUESTS
             )
         ) {
 
-            return window
+            requests = window
                 .LORDBLESS_PAYMENT_REQUESTS;
 
-        }
-
-
-        if (
+        } else if (
             window.LORDBLESS_PAYMENT_REQUEST &&
             typeof
                 window.LORDBLESS_PAYMENT_REQUEST
                     .getAll === "function"
         ) {
 
-            return window
+            requests = window
                 .LORDBLESS_PAYMENT_REQUEST
                 .getAll();
-
         }
 
+        const assessmentRequests = Array.isArray(window.LORDBLESS_ASSESSMENT_FINANCE_HISTORY)
+            ? window.LORDBLESS_ASSESSMENT_FINANCE_HISTORY
+            : [];
+        const assessmentClients = new Set(assessmentRequests.flatMap(request => [
+            request.clientId,
+            request.clientCode,
+            request.clientUuid
+        ].filter(Boolean).map(String)));
+        const assessmentReferences = new Set(assessmentRequests.map(request => String(request.reference || "")).filter(Boolean));
 
-        return [];
+        return [
+            ...requests.filter(request => {
+                const assessmentLike = request?.purpose === "initial_assessment_consultation" ||
+                    request?.requestType === "initial_assessment_consultation" ||
+                    /initial assessment.*consultation/i.test(String(request?.description || "")) ||
+                    /initial assessment.*consultation/i.test(String(request?.requestType || ""));
+                const clientKeys = [request?.clientId, request?.client_id, request?.clientUuid, request?.client_code]
+                    .filter(Boolean).map(String);
+                return !(assessmentLike && (
+                    assessmentReferences.has(String(request?.reference || request?.invoiceNumber || "")) ||
+                    clientKeys.some(clientKey => assessmentClients.has(clientKey))
+                ));
+            }),
+            ...assessmentRequests
+        ];
 
     }
 
@@ -310,6 +329,12 @@
                 payment.verificationStatus ||
                 payment.verification_status ||
                 "not_verified",
+
+            purpose:
+                payment.purpose || payment.requestType || null,
+
+            databaseAssessment:
+                Boolean(payment.databaseAssessment),
 
             receiptId:
                 payment.receiptId ||
@@ -498,6 +523,7 @@
                 if (
                     [
                         "requested",
+                        "awaiting_verification",
                         "viewed",
                         "overdue"
                     ].includes(
@@ -580,6 +606,7 @@
                 if (
                     [
                         "requested",
+                        "awaiting_verification",
                         "viewed",
                         "overdue"
                     ].includes(
@@ -622,6 +649,7 @@
                 payment =>
                     [
                         "requested",
+                        "awaiting_verification",
                         "viewed",
                         "overdue"
                     ].includes(
@@ -803,6 +831,12 @@
                         </option>
 
                         <option
+                            value="awaiting_verification"
+                        >
+                            Awaiting verification
+                        </option>
+
+                        <option
                             value="viewed"
                         >
                             Viewed
@@ -970,6 +1004,7 @@
                                         payment =>
                                             [
                                                 "requested",
+                                                "awaiting_verification",
                                                 "viewed",
                                                 "overdue"
                                             ].includes(

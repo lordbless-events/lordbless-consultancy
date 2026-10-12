@@ -41,6 +41,7 @@
     const PAYMENT_STATUS = Object.freeze({
 
         REQUESTED: "requested",
+        AWAITING_VERIFICATION: "awaiting_verification",
         VIEWED: "viewed",
         PAID: "paid",
         CANCELLED: "cancelled",
@@ -277,16 +278,25 @@
             ? window.LORDBLESS_ASSESSMENT_FINANCE_HISTORY
             : [];
         const databaseClients = new Set(databaseRequests.flatMap(request => [
-            String(request.clientId),
-            String(request.clientCode || ""),
-            String(request.clientUuid || "")
-        ]));
+            request.clientId,
+            request.clientCode,
+            request.clientUuid
+        ].filter(Boolean).map(String)));
+        const databaseReferences = new Set(databaseRequests.map(request => String(request.reference || "")).filter(Boolean));
         const localRequests = Array.isArray(requests) ? requests : [];
         return [
-            ...localRequests.filter(request => !(
-                request?.purpose === "initial_assessment_consultation" &&
-                databaseClients.has(String(request.clientId))
-            )),
+            ...localRequests.filter(request => {
+                const assessmentLike = request?.purpose === "initial_assessment_consultation" ||
+                    request?.requestType === "initial_assessment_consultation" ||
+                    /initial assessment.*consultation/i.test(String(request?.description || "")) ||
+                    /initial assessment.*consultation/i.test(String(request?.requestType || ""));
+                const clientKeys = [request?.clientId, request?.client_id, request?.clientUuid, request?.client_code]
+                    .filter(Boolean).map(String);
+                return !(assessmentLike && (
+                    databaseReferences.has(String(request?.reference || request?.invoiceNumber || "")) ||
+                    clientKeys.some(clientKey => databaseClients.has(clientKey))
+                ));
+            }),
             ...databaseRequests
         ];
     }
@@ -2081,6 +2091,8 @@
 
                         PAYMENT_STATUS.REQUESTED,
 
+                        PAYMENT_STATUS.AWAITING_VERIFICATION,
+
                         PAYMENT_STATUS.VIEWED,
 
                         PAYMENT_STATUS.OVERDUE
@@ -2232,6 +2244,8 @@
                     [
 
                         PAYMENT_STATUS.REQUESTED,
+
+                        PAYMENT_STATUS.AWAITING_VERIFICATION,
 
                         PAYMENT_STATUS.VIEWED,
 
@@ -2497,6 +2511,12 @@
                     <option value="requested">
 
                         Requested
+
+                    </option>
+
+                    <option value="awaiting_verification">
+
+                        Awaiting verification
 
                     </option>
 
