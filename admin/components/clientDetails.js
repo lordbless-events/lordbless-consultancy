@@ -202,7 +202,6 @@
         );
         const canSchedule = Boolean(model.canScheduleConsultation && payment?.status === "paid" && payment?.verification_status === "verified");
         const inputs = meetingTimeParts(meeting);
-        const email = model.consultationEmail || null;
         const outstanding = payment?.status === "paid" && payment?.verification_status === "verified"
             ? 0
             : Math.max(0, Number(payment?.amount || 1000) - Number(payment?.amount_received || 0));
@@ -217,23 +216,38 @@
         const meetingStatus = meeting
             ? String(meeting.status || "scheduled").replaceAll("_", " ")
             : "Not scheduled";
+        const verifiedPayment = payment?.status === "paid" && payment?.verification_status === "verified";
+        const verifiedWithReceipt = verifiedPayment && payment?.receipt_number && payment?.receipt_issued_at;
+        const financeSummary = verifiedWithReceipt
+            ? "Consultation paid in full"
+            : verifiedPayment
+                ? "Payment verified · receipt pending"
+            : payment ? `${paymentStatus} · GHS ${payableAmount.toFixed(2)} payable` : "Not requested";
 
         return `
-            <section class="detail-card full-width" aria-labelledby="client-assessment-title">
-                <h3 id="client-assessment-title">Initial Assessment &amp; Consultation</h3>
-                <div class="detail-row"><span>Assessment service</span><strong>Initial Assessment &amp; 30-Minute Consultation</strong></div>
-                <div class="detail-row"><span>Standard fee</span><strong>GHS ${standardAmount.toFixed(2)}</strong></div>
-                <div class="detail-row"><span>Authorized discount</span><strong>GHS ${discountAmount.toFixed(2)}</strong></div>
-                <div class="detail-row"><span>Amount payable</span><strong>GHS ${payableAmount.toFixed(2)}</strong></div>
-                <div class="detail-row"><span>Payment status</span><strong>${escapeClientDetails(paymentStatus)}</strong></div>
-                <div class="detail-row"><span>Outstanding amount</span><strong>GHS ${outstanding.toFixed(2)}</strong></div>
-                <div class="detail-row"><span>Verification status</span><strong>${escapeClientDetails(payment?.verification_status || "Not verified")}</strong></div>
-                ${payment ? `<div class="detail-row"><span>Request reference</span><strong>${escapeClientDetails(payment.reference || "—")}</strong></div>` : ""}
-                ${payment?.payment_instructions
-                    ? `<p>${escapeClientDetails(payment.payment_instructions)}</p>`
-                    : payment && payment.status !== "paid"
-                        ? `<p>Payment instructions are pending Finance confirmation. No payment method has been configured here.</p>`
-                        : ""}
+            <details class="client-detail-accordion full-width">
+                <summary><span>Finance · Initial Assessment &amp; Consultation</span><strong>${escapeClientDetails(financeSummary)}</strong></summary>
+                <div class="client-detail-accordion-content">
+                ${verifiedWithReceipt ? `
+                    <p class="client-payment-complete-status"><strong>Consultation paid in full</strong></p>
+                    <div class="detail-row"><span>Official receipt</span><strong>${escapeClientDetails(payment.receipt_number)}</strong></div>
+                    <p>The official receipt remains available in Finance → Receipts.</p>
+                ` : `
+                    <h3 id="client-assessment-title">Initial Assessment &amp; Consultation</h3>
+                    <div class="detail-row"><span>Assessment service</span><strong>Initial Assessment &amp; 30-Minute Consultation</strong></div>
+                    <div class="detail-row"><span>Standard fee</span><strong>GHS ${standardAmount.toFixed(2)}</strong></div>
+                    <div class="detail-row"><span>Authorized discount</span><strong>GHS ${discountAmount.toFixed(2)}</strong></div>
+                    <div class="detail-row"><span>Amount payable</span><strong>GHS ${payableAmount.toFixed(2)}</strong></div>
+                    <div class="detail-row"><span>Payment status</span><strong>${escapeClientDetails(paymentStatus)}</strong></div>
+                    <div class="detail-row"><span>Outstanding amount</span><strong>GHS ${outstanding.toFixed(2)}</strong></div>
+                    <div class="detail-row"><span>Verification status</span><strong>${escapeClientDetails(payment?.verification_status || "Not verified")}</strong></div>
+                    ${payment ? `<div class="detail-row"><span>Request reference</span><strong>${escapeClientDetails(payment.reference || "—")}</strong></div>` : ""}
+                    ${payment?.payment_instructions && payment?.verification_status !== "verified"
+                        ? `<p>${escapeClientDetails(payment.payment_instructions)}</p>`
+                        : payment && payment?.verification_status !== "verified" && payment.status !== "paid"
+                            ? `<p>Payment instructions are pending Finance confirmation.</p>`
+                            : ""}
+                `}
                 ${canSetInstructions ? `
                     <form data-assessment-instructions-form data-payment-id="${escapeClientDetails(payment.id)}">
                         <label>FINANCE-APPROVED PAYMENT INSTRUCTIONS
@@ -260,8 +274,6 @@
                     ${meeting.location ? `<div class="detail-row"><span>Location</span><strong>${escapeClientDetails(meeting.location)}</strong></div>` : ""}
                     ${meeting.meeting_link ? `<div class="detail-row"><span>Meeting link</span><strong>${escapeClientDetails(meeting.meeting_link)}</strong></div>` : ""}
                     ${meeting.instructions ? `<div class="detail-row"><span>Instructions</span><strong>${escapeClientDetails(meeting.instructions)}</strong></div>` : ""}
-                    ${email ? `<div class="detail-row"><span>Confirmation email</span><strong>${escapeClientDetails(email.status || "pending")}</strong></div>` : ""}
-                    ${email && ["pending", "failed"].includes(email.status) ? `<button type="button" class="button button-secondary" data-consultation-email-retry data-notification-id="${escapeClientDetails(email.notification_id)}">RETRY EMAIL</button>` : ""}
                     ${canSchedule && meeting.status === "scheduled" ? `<button type="button" class="button button-secondary" data-consultation-cancel data-client-id="${escapeClientDetails(clientId)}">CANCEL CONSULTATION</button>` : ""}
                 ` : ""}
                 ${canSchedule ? `
@@ -280,7 +292,8 @@
                     </form>
                 ` : ""}
                 <p data-assessment-message role="status" aria-live="polite"></p>
-            </section>
+                </div>
+            </details>
         `;
     }
 
@@ -306,7 +319,9 @@
         `).join("") : `<p>No appointments have been scheduled.</p>`;
 
         return `
-            <section class="detail-card full-width" aria-labelledby="client-appointments-title">
+            <details class="client-detail-accordion full-width">
+                <summary><span>Appointments</span><strong>${appointments.length ? `${appointments.length} recorded · ${escapeClientDetails(appointments[0].status || "scheduled")}` : "No appointments scheduled"}</strong></summary>
+                <div class="client-detail-accordion-content">
                 <h3 id="client-appointments-title">Appointments</h3>
                 <p>Use this for ongoing client appointments. Initial Assessment &amp; Consultation remains in its payment-gated workflow.</p>
                 ${model.appointmentError ? `<p role="alert">${escapeClientDetails(model.appointmentError)}</p>` : ""}
@@ -326,7 +341,72 @@
                     <button type="submit" class="button button-primary" data-appointment-submit>SCHEDULE APPOINTMENT</button>
                 </form>
                 <p data-appointment-message role="status" aria-live="polite"></p>
-            </section>
+                </div>
+            </details>
+        `;
+    }
+
+    function renderClientDocuments(model) {
+        if (!model.canReadDocuments) return "";
+        const documents = Array.isArray(model.clientDocuments) ? model.clientDocuments : [];
+        const requests = Array.isArray(model.documentRequests) ? model.documentRequests : [];
+        const openRequests = requests.filter(item => !["approved", "waived", "cancelled"].includes(String(item.status || "requested").toLowerCase()));
+        const documentRows = documents.length ? documents.map(document => `
+            <article class="client-workspace-row">
+                <strong>${escapeClientDetails(document.document_name || document.name || document.title || document.document_type || "Client document")}</strong>
+                <span>${escapeClientDetails(document.document_type || document.type || "Document")} · ${escapeClientDetails(document.status || document.review_status || "uploaded")}</span>
+                <span>${escapeClientDetails(document.file_name || document.original_filename || document.filename || "File record")}</span>
+            </article>
+        `).join("") : "<p>No uploaded document records.</p>";
+        const requestRows = requests.length ? requests.map(request => `
+            <article class="client-workspace-row">
+                <strong>${escapeClientDetails(request.document_name || request.document_type || request.title || "Requested document")}</strong>
+                <span>${escapeClientDetails(request.status || "requested")}${request.deadline || request.due_date ? ` · due ${escapeClientDetails(request.deadline || request.due_date)}` : ""}</span>
+                ${request.instructions || request.message ? `<p>${escapeClientDetails(request.instructions || request.message)}</p>` : ""}
+            </article>
+        `).join("") : "<p>No document requests have been recorded.</p>";
+
+        return `
+            <details class="client-detail-accordion full-width">
+                <summary><span>Documents</span><strong>${documents.length} uploaded · ${openRequests.length} open requests</strong></summary>
+                <div class="client-detail-accordion-content">
+                    ${model.documentError ? `<p role="alert">${escapeClientDetails(model.documentError)}</p>` : ""}
+                    <h4>Uploaded documents (${documents.length})</h4>${documentRows}
+                    <h4>Requested documents (${requests.length})</h4>${requestRows}
+                    <p>Private preview and download controls appear in the Documents workspace only when secure Storage access is configured.</p>
+                </div>
+            </details>
+        `;
+    }
+
+    function renderClientFollowups(model, clientId) {
+        if (!model.canReadFollowups) return "";
+        const followups = Array.isArray(model.clientFollowups) ? model.clientFollowups : [];
+        const rows = followups.length ? followups.map(item => `
+            <article class="client-workspace-row">
+                <strong>${escapeClientDetails(item.task_type.replaceAll("_", " "))} · ${escapeClientDetails(item.status.replaceAll("_", " "))}</strong>
+                <span>Due ${escapeClientDetails(item.due_date)} · ${escapeClientDetails(item.priority)}</span>
+                ${item.notes ? `<p>${escapeClientDetails(item.notes)}</p>` : ""}
+            </article>
+        `).join("") : "<p>No follow-up actions are recorded.</p>";
+        return `
+            <details class="client-detail-accordion full-width">
+                <summary><span>Follow-ups</span><strong>${followups.filter(item => !["completed", "cancelled"].includes(item.status)).length} open · ${followups.length} total</strong></summary>
+                <div class="client-detail-accordion-content">
+                    ${model.followupError ? `<p role="alert">${escapeClientDetails(model.followupError)}</p>` : ""}
+                    ${rows}
+                    ${model.canWriteFollowups ? `
+                        <form data-client-followup-form data-client-id="${escapeClientDetails(clientId)}">
+                            <label>Due date<input name="due_date" type="date" required></label>
+                            <label>Task type<select name="task_type" required><option value="client_decision">Client decision</option><option value="enquiry_contact">Client contact</option><option value="missing_document">Missing document</option><option value="payment_reminder">Payment reminder</option><option value="consultation">Consultation</option><option value="other">Other</option></select></label>
+                            <label>Priority<select name="priority"><option value="normal">Normal</option><option value="low">Low</option><option value="high">High</option><option value="urgent">Urgent</option></select></label>
+                            <label>Notes<textarea name="notes" rows="2" maxlength="3000"></textarea></label>
+                            <button class="button button-secondary" type="submit">ADD FOLLOW-UP</button>
+                            <p data-client-followup-message role="status" aria-live="polite"></p>
+                        </form>
+                    ` : ""}
+                </div>
+            </details>
         `;
     }
 
@@ -369,7 +449,9 @@
                     </button>
                 </div>
 
-                <div class="detail-grid">
+                <details class="client-detail-accordion full-width">
+                    <summary><span>Personal information, enquiry and submitted pathway</span><strong>${escapeClientDetails(services.join(", ") || "Enquiry details")}</strong></summary>
+                    <div class="client-detail-accordion-content detail-grid">
                     <section class="detail-card">
                         <h3>Client Information</h3>
                         ${detailRows({
@@ -398,17 +480,17 @@
 
                     ${serviceSections(enquiry)}
 
-                    ${renderAssessment(model, model.clientId)}
-
-                    ${renderAppointments(model, model.clientId)}
-
                     <section class="detail-card full-width">
                         <h3>Additional Information</h3>
                         <p>${escapeClientDetails(textValue(additionalInformation) || "Not provided")}</p>
                     </section>
-
-                    ${renderPortalAccess(portalState, model.clientId)}
-                </div>
+                    </div>
+                </details>
+                ${renderAssessment(model, model.clientId)}
+                ${renderAppointments(model, model.clientId)}
+                ${renderClientDocuments(model)}
+                ${renderClientFollowups(model, model.clientId)}
+                ${renderPortalAccess(portalState, model.clientId)}
             </div>
         `;
 

@@ -3263,7 +3263,26 @@ async function loadAdminJourneys(clientId = null) {
     }
 
     state.journeyLoadError = "";
-    const mapped = (data || []).map(mapSupabaseJourney);
+    state.journeyMilestoneLoadError = "";
+    let mapped = (data || []).map(mapSupabaseJourney);
+    if (mapped.length && clientId) {
+        const milestoneResult = await lordblessSupabase
+            .from("client_journey_milestones")
+            .select("id, journey_id, title, description, sort_order, status, due_date, completed_at, created_at, updated_at")
+            .in("journey_id", mapped.map(item => item.id))
+            .order("sort_order", { ascending: true });
+        if (milestoneResult.error) {
+            state.journeyMilestoneLoadError = milestoneResult.error.message || "Journey milestone progress could not be loaded.";
+        } else {
+            const milestonesByJourney = new Map();
+            for (const milestone of milestoneResult.data || []) {
+                if (!milestonesByJourney.has(milestone.journey_id)) milestonesByJourney.set(milestone.journey_id, []);
+                milestonesByJourney.get(milestone.journey_id).push(milestone);
+            }
+            mapped = mapped.map(item => ({ ...item, milestones: milestonesByJourney.get(item.id) || [] }));
+        }
+    }
+    if (state.adminIdentity?.id !== requestUserId) return [];
 
     if (clientId) {
         state.journeys = [
@@ -7907,11 +7926,18 @@ function renderAdminEnquiryClientView(enquiry, portalState) {
             canScheduleConsultation: hasPermission(getCurrentUser(), "consultations.manage"),
             assessmentPayment: portalState?.assessmentPayment || null,
             consultationMeeting: portalState?.consultationMeeting || null,
-            consultationEmail: portalState?.consultationEmail || null,
             assessmentError: portalState?.assessmentError || "",
             appointments: portalState?.appointments || [],
             appointmentError: portalState?.appointmentError || "",
-            canManageAppointments: hasPermission(getCurrentUser(), "consultations.manage")
+            canManageAppointments: hasPermission(getCurrentUser(), "consultations.manage"),
+            clientDocuments: portalState?.clientDocuments || [],
+            documentRequests: portalState?.documentRequests || [],
+            documentError: portalState?.documentError || "",
+            canReadDocuments: Boolean(portalState?.canReadDocuments),
+            clientFollowups: portalState?.clientFollowups || [],
+            followupError: portalState?.followupError || "",
+            canReadFollowups: Boolean(portalState?.canReadFollowups),
+            canWriteFollowups: Boolean(portalState?.canWriteFollowups)
         }
     );
 
@@ -8042,11 +8068,39 @@ async function loadAdminAssessmentState(clientId) {
     const result = {
         assessmentPayment: null,
         consultationMeeting: null,
-        consultationEmail: null,
         assessmentError: "",
         appointments: [],
-        appointmentError: ""
+        appointmentError: "",
+        clientDocuments: [],
+        documentRequests: [],
+        documentError: "",
+        canReadDocuments: hasPermission(getCurrentUser(), "documents.read"),
+        clientFollowups: [],
+        followupError: "",
+        canReadFollowups: hasPermission(getCurrentUser(), "followups.read"),
+        canWriteFollowups: hasPermission(getCurrentUser(), "followups.write")
     };
+    if (result.canReadDocuments) {
+        const [documents, requests] = await Promise.all([
+            lordblessSupabase.from("client_documents").select("*").eq("client_id", clientId),
+            lordblessSupabase.from("document_requests").select("*").eq("client_id", clientId).order("created_at", { ascending: false })
+        ]);
+        if (documents.error || requests.error) {
+            result.documentError = documents.error?.message || requests.error?.message || "Document records could not be loaded.";
+        } else {
+            result.clientDocuments = documents.data || [];
+            result.documentRequests = requests.data || [];
+        }
+    }
+    if (result.canReadFollowups) {
+        const { data, error } = await lordblessSupabase
+            .from("portal_followups")
+            .select("id, client_id, due_date, priority, task_type, notes, status, created_at, completed_at")
+            .eq("client_id", clientId)
+            .order("due_date", { ascending: true });
+        if (error) result.followupError = error.message || "Follow-up records could not be loaded.";
+        else result.clientFollowups = data || [];
+    }
     if (hasPermission(getCurrentUser(), "finance.read")) {
         const { data: payment, error: paymentError } = await lordblessSupabase
             .from("client_assessment_payments")
@@ -8106,16 +8160,6 @@ async function loadAdminAssessmentState(clientId) {
     }
     result.consultationMeeting = meeting || null;
 
-    if (meeting) {
-        const { data: email, error: emailError } = await lordblessSupabase
-            .from("client_consultation_email_outbox")
-            .select("notification_id, status, updated_at, last_error")
-            .eq("client_id", clientId)
-            .order("updated_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-        if (!emailError) result.consultationEmail = email || null;
-    }
     return result;
 }
 
@@ -8131,22 +8175,6 @@ async function refreshAdminClientAssessment(enquiry, portalState, messageText = 
     if (messageText) {
         const message = modalContent.querySelector("[data-assessment-message]");
         if (message) message.textContent = messageText;
-    }
-}
-
-
-async function sendConsultationEmail(notificationId) {
-    if (!notificationId) return "Meeting saved. Email delivery is pending configuration.";
-    try {
-        const { data, error } = await lordblessSupabase.functions.invoke(
-            "send-consultation-notification",
-            { body: { notification_id: notificationId } }
-        );
-        if (error) return `Meeting saved. Email was not confirmed as sent: ${error.message || "notification service unavailable"}`;
-        if (!data?.sent) return `Meeting saved. Email was not sent: ${data?.error || "delivery is pending"}`;
-        return "Meeting saved and confirmation email sent.";
-    } catch (error) {
-        return `Meeting saved. Email was not confirmed as sent: ${error?.message || "notification service unavailable"}`;
     }
 }
 
@@ -8248,10 +8276,13 @@ function bindAdminAssessmentActions(enquiry, portalState) {
                 p_instructions: fields.get("instructions") || null
             });
             if (error) throw error;
-            const emailMessage = data?.unchanged
-                ? "Meeting details are unchanged."
-                : await sendConsultationEmail(data?.notification_id);
-            await refreshAdminClientAssessment(enquiry, portalState, emailMessage);
+            await refreshAdminClientAssessment(
+                enquiry,
+                portalState,
+                data?.unchanged
+                    ? "Meeting details are unchanged."
+                    : "Consultation scheduled and the Client Portal message is available."
+            );
         } catch (error) {
             if (message) message.textContent = error?.message || "Unable to save the consultation.";
             button.disabled = false;
@@ -8271,24 +8302,17 @@ function bindAdminAssessmentActions(enquiry, portalState) {
                 p_reason: reason || null
             });
             if (error) throw error;
-            const emailMessage = data?.unchanged
-                ? "This consultation was already cancelled."
-                : await sendConsultationEmail(data?.notification_id);
-            await refreshAdminClientAssessment(enquiry, portalState, emailMessage);
+            await refreshAdminClientAssessment(
+                enquiry,
+                portalState,
+                data?.unchanged
+                    ? "This consultation was already cancelled."
+                    : "Consultation cancelled and the Client Portal message is available."
+            );
         } catch (error) {
             if (message) message.textContent = error?.message || "Unable to cancel the consultation.";
             cancelButton.disabled = false;
         }
-    });
-
-    modalContent.querySelectorAll("[data-consultation-email-retry]").forEach(button => {
-        button.addEventListener("click", async () => {
-            button.disabled = true;
-            const message = modalContent.querySelector("[data-assessment-message]");
-            if (message) message.textContent = "Retrying email delivery…";
-            const result = await sendConsultationEmail(button.dataset.notificationId);
-            await refreshAdminClientAssessment(enquiry, portalState, result);
-        });
     });
 
     const appointmentForm = modalContent.querySelector("[data-client-appointment-form]");
@@ -8371,6 +8395,39 @@ function bindAdminAssessmentActions(enquiry, portalState) {
                 button.disabled = false;
             }
         });
+    });
+
+    const followupForm = modalContent.querySelector("[data-client-followup-form]");
+    if (followupForm) followupForm.addEventListener("submit", async event => {
+        event.preventDefault();
+        const button = followupForm.querySelector('[type="submit"]');
+        const message = followupForm.querySelector("[data-client-followup-message]");
+        const fields = new FormData(followupForm);
+        const activeReference = enquiryModal.dataset.clientDetailsReference;
+        if (button) button.disabled = true;
+        if (message) message.textContent = "Saving follow-up…";
+        try {
+            const { error } = await lordblessSupabase.from("portal_followups").insert({
+                client_id: followupForm.dataset.clientId,
+                enquiry_id: isSupabaseClientId(enquiry.id) ? enquiry.id : null,
+                created_by: state.adminIdentity?.id,
+                due_date: fields.get("due_date"),
+                priority: fields.get("priority"),
+                task_type: fields.get("task_type"),
+                notes: String(fields.get("notes") || "").trim(),
+                status: "open"
+            });
+            if (error) throw error;
+            if (enquiryModal.classList.contains("hidden") || enquiryModal.dataset.clientDetailsReference !== activeReference) return;
+            const updatedState = await loadAdminAssessmentState(followupForm.dataset.clientId);
+            if (enquiryModal.classList.contains("hidden") || enquiryModal.dataset.clientDetailsReference !== activeReference) return;
+            renderAdminEnquiryClientView(enquiry, { ...portalState, ...updatedState });
+            const updatedMessage = modalContent.querySelector("[data-client-followup-message]");
+            if (updatedMessage) updatedMessage.textContent = "Follow-up saved.";
+        } catch (error) {
+            if (message) message.textContent = error?.message || "Unable to save the follow-up.";
+            if (button) button.disabled = false;
+        }
     });
 }
 
@@ -8469,10 +8526,82 @@ function renderAdminJourneyPanel(clientId) {
                     ${journey.desk
                         ? `<span>Internal team: ${escapeHTML(state.adminIdentity?.desks?.find(item => item.code === journey.desk)?.name || journey.desk)}</span>`
                         : ""}
+                    <strong>Milestones</strong>
+                    ${journey.milestones?.length ? journey.milestones.map(milestone => `
+                        <label class="client-journey-milestone-row">
+                            <span>${escapeHTML(milestone.title)}${milestone.due_date ? ` · due ${escapeHTML(milestone.due_date)}` : ""}</span>
+                            <select class="filter-select" data-journey-milestone-status="${escapeHTML(milestone.id)}" data-journey-id="${escapeHTML(journey.id)}" aria-label="Update ${escapeHTML(milestone.title)} progress">
+                                ${["pending", "in_progress", "completed", "blocked"].map(status => `<option value="${status}" ${milestone.status === status ? "selected" : ""}>${status.replaceAll("_", " ")}</option>`).join("")}
+                            </select>
+                        </label>
+                        ${milestone.description ? `<span>${escapeHTML(milestone.description)}</span>` : ""}
+                    `).join("") : `<span>No milestones have been added.</span>`}
+                    <form class="client-journey-milestone-form" data-journey-milestone-form data-journey-id="${escapeHTML(journey.id)}">
+                        <label>Milestone title<input name="title" type="text" maxlength="180" required></label>
+                        <label>Details<input name="description" type="text" maxlength="1000"></label>
+                        <label>Due date<input name="due_date" type="date"></label>
+                        <button type="submit" class="button button-secondary">ADD MILESTONE</button>
+                    </form>
+                    <p data-journey-milestone-message role="status" aria-live="polite"></p>
                 </article>
             `).join("");
+            if (state.journeyMilestoneLoadError) {
+                list.insertAdjacentHTML("afterbegin", `<p role="alert">${escapeHTML(state.journeyMilestoneLoadError)}</p>`);
+            }
         }
     }
+
+    list?.querySelectorAll("[data-journey-milestone-status]").forEach(select => {
+        select.addEventListener("change", async () => {
+            const journey = journeys.find(item => item.id === select.dataset.journeyId);
+            const milestone = journey?.milestones?.find(item => item.id === select.dataset.journeyMilestoneStatus);
+            if (!milestone) return;
+            select.disabled = true;
+            const result = await lordblessSupabase.rpc("save_client_journey_milestone", {
+                p_milestone_id: milestone.id,
+                p_journey_id: journey.id,
+                p_title: milestone.title,
+                p_description: milestone.description || "",
+                p_sort_order: milestone.sort_order || 0,
+                p_due_date: milestone.due_date || null,
+                p_status: select.value
+            });
+            if (result.error) {
+                alert(result.error.message || "Unable to update milestone progress.");
+                select.disabled = false;
+                return;
+            }
+            await loadAdminJourneys(clientId);
+            renderAdminJourneyPanel(clientId);
+        });
+    });
+
+    list?.querySelectorAll("[data-journey-milestone-form]").forEach(form => {
+        form.addEventListener("submit", async event => {
+            event.preventDefault();
+            const button = form.querySelector('[type="submit"]');
+            const message = form.parentElement.querySelector("[data-journey-milestone-message]");
+            const fields = new FormData(form);
+            if (button) button.disabled = true;
+            if (message) message.textContent = "Saving milestone…";
+            const result = await lordblessSupabase.rpc("save_client_journey_milestone", {
+                p_milestone_id: null,
+                p_journey_id: form.dataset.journeyId,
+                p_title: String(fields.get("title") || "").trim(),
+                p_description: String(fields.get("description") || "").trim(),
+                p_sort_order: (journeys.find(item => item.id === form.dataset.journeyId)?.milestones || []).length,
+                p_due_date: fields.get("due_date") || null,
+                p_status: "pending"
+            });
+            if (result.error) {
+                if (message) message.textContent = result.error.message || "Unable to save milestone.";
+                if (button) button.disabled = false;
+                return;
+            }
+            await loadAdminJourneys(clientId);
+            renderAdminJourneyPanel(clientId);
+        });
+    });
 
     const requestList = panel.querySelector("[data-client-journey-request-list]");
     const requestSelect = panel.querySelector('[name="request_id"]');
@@ -8495,11 +8624,14 @@ function renderAdminJourneyPanel(clientId) {
                     <article class="client-journey-summary">
                         <strong>${escapeHTML(request.service)}</strong>
                         <span>${escapeHTML(request.destination || "Destination not specified")} · ${escapeHTML(request.status.replaceAll("_", " "))}</span>
+                        <span>Client: ${escapeHTML(getAdminClients().find(item => item.id === request.client_id)?.name || "Linked client")}</span>
+                        <span>Submitted: ${escapeHTML(formatDate(request.created_at))}</span>
                         <span>${escapeHTML(request.details?.client_message || "")}</span>
+                        ${request.details?.review_reason ? `<span>Review note: ${escapeHTML(request.details.review_reason)}</span>` : ""}
                         ${request.assigned_journey_id ? `<span>Assigned journey: ${escapeHTML(request.assigned_journey_id)}</span>` : ""}
                         <div>
                             ${request.assigned_journey_id || !["requested", "in_review", "approved"].includes(request.status) ? "" : `<button type="button" class="button button-secondary" data-use-journey-request="${escapeHTML(request.id)}">Prepare Assignment</button>`}
-                            ${request.assigned_journey_id ? "" : `<select class="filter-select" data-journey-request-status="${escapeHTML(request.id)}" aria-label="Update request status"><option value="requested" ${request.status === "requested" ? "selected" : ""}>Requested</option><option value="in_review" ${request.status === "in_review" ? "selected" : ""}>In review</option><option value="approved" ${request.status === "approved" ? "selected" : ""}>Approved</option><option value="rejected" ${request.status === "rejected" ? "selected" : ""}>Rejected</option><option value="cancelled" ${request.status === "cancelled" ? "selected" : ""}>Cancelled</option></select>`}
+                            ${request.assigned_journey_id ? "" : `<label>Review decision<select class="filter-select" data-journey-request-status="${escapeHTML(request.id)}" aria-label="Update request status"><option value="requested" ${request.status === "requested" ? "selected" : ""}>Requested</option><option value="in_review" ${request.status === "in_review" ? "selected" : ""}>In review</option><option value="approved" ${request.status === "approved" ? "selected" : ""}>Approved</option><option value="rejected" ${request.status === "rejected" ? "selected" : ""}>Declined</option><option value="cancelled" ${request.status === "cancelled" ? "selected" : ""}>Cancelled</option></select></label><label>Review reason / note<textarea data-journey-request-reason="${escapeHTML(request.id)}" rows="2" maxlength="1500">${escapeHTML(request.details?.review_reason || "")}</textarea></label>`}
                         </div>
                     </article>
                 `).join("") : "<p>No client journey requests have been submitted.</p>";
@@ -8526,11 +8658,26 @@ function renderAdminJourneyPanel(clientId) {
 
                 requestList.querySelectorAll("[data-journey-request-status]").forEach(select => {
                     select.addEventListener("change", async () => {
+                        const reasonField = requestList.querySelector(`[data-journey-request-reason="${select.dataset.journeyRequestStatus}"]`);
+                        const reason = String(reasonField?.value || "").trim();
+                        if (select.value === "rejected" && !reason) {
+                            alert("Add a reason before declining this journey request.");
+                            select.value = requests.find(item => item.id === select.dataset.journeyRequestStatus)?.status || "requested";
+                            reasonField?.focus();
+                            return;
+                        }
                         select.disabled = true;
+                        const original = requests.find(item => item.id === select.dataset.journeyRequestStatus);
                         const result = await lordblessSupabase
                             .from("client_journey_requests")
-                            .update({ status: select.value, reviewed_by: state.adminIdentity?.id, reviewed_at: new Date().toISOString() })
-                            .eq("id", select.dataset.journeyRequestStatus);
+                            .update({
+                                status: select.value,
+                                details: { ...(original?.details || {}), review_reason: reason || null },
+                                reviewed_by: state.adminIdentity?.id,
+                                reviewed_at: new Date().toISOString()
+                            })
+                            .eq("id", select.dataset.journeyRequestStatus)
+                            .eq("client_id", clientId);
                         if (result.error) {
                             alert(result.error.message || "Unable to update journey request.");
                             select.disabled = false;

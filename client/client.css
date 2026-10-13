@@ -2607,6 +2607,32 @@ p {
 
 }
 
+.client-journey-milestones {
+    margin-top: 1.25rem;
+}
+
+.client-journey-milestones ol {
+    display: grid;
+    gap: 0.75rem;
+    margin: 0.75rem 0 0;
+    padding-left: 1.25rem;
+}
+
+.client-journey-milestones li {
+    display: grid;
+    gap: 0.2rem;
+    padding: 0.75rem;
+    border: 1px solid #e8e4dc;
+    border-radius: 0.65rem;
+}
+
+.client-journey-milestones li span,
+.client-journey-milestones li time {
+    color: var(--ink-muted);
+    font-size: 0.9rem;
+    text-transform: capitalize;
+}
+
 
 .transaction-footer {
 

@@ -602,6 +602,7 @@ let clientPortalInitialised = false;
 let clientAuthLookupUserId = null;
 let clientAuthResolvedUserId = null;
 let clientJourneyLoadError = "";
+let clientJourneyMilestoneError = "";
 let clientDocumentLoadError = "";
 let clientJourneyRequests = [];
 let clientJourneyRequestError = "";
@@ -686,6 +687,8 @@ async function loadAuthenticatedClientJourneys(clientId) {
     LORDBLESS_CLIENT_ACCOUNT.transactions = [];
     LORDBLESS_CLIENT_ACCOUNT.currentTransactionId = null;
     clientJourneyLoadError = "";
+    clientJourneyMilestoneError = "";
+    const requestUserId = clientAuthLookupUserId;
 
     const { data, error } = await lordblessSupabase
         .from("client_journeys")
@@ -699,9 +702,38 @@ async function loadAuthenticatedClientJourneys(clientId) {
         return;
     }
 
-    const journeys = (data || [])
+    let journeys = (data || [])
         .filter(journey => journey.client_id === clientId)
         .map(mapAuthenticatedClientJourney);
+
+    if (journeys.length) {
+        const milestoneResult = await lordblessSupabase
+            .from("client_journey_milestones")
+            .select("id, journey_id, title, description, sort_order, status, due_date, completed_at")
+            .in("journey_id", journeys.map(journey => journey.id))
+            .order("sort_order", { ascending: true });
+        if (clientId !== LORDBLESS_CLIENT_ACCOUNT.id || requestUserId !== clientAuthLookupUserId) return;
+        if (milestoneResult.error) {
+            clientJourneyMilestoneError = milestoneResult.error.message || "Journey milestones could not be loaded.";
+        } else {
+            const milestonesByJourney = new Map();
+            for (const milestone of milestoneResult.data || []) {
+                if (!milestonesByJourney.has(milestone.journey_id)) milestonesByJourney.set(milestone.journey_id, []);
+                milestonesByJourney.get(milestone.journey_id).push(milestone);
+            }
+            journeys = journeys.map(journey => ({
+                ...journey,
+                milestones: milestonesByJourney.get(journey.id) || [],
+                progress: milestonesByJourney.get(journey.id)?.length
+                    ? Math.round(
+                        milestonesByJourney.get(journey.id).filter(item => item.status === "completed").length /
+                        milestonesByJourney.get(journey.id).length * 100
+                    )
+                    : journey.progress,
+                nextStep: milestonesByJourney.get(journey.id)?.find(item => item.status !== "completed")?.title || journey.nextStep
+            }));
+        }
+    }
 
     LORDBLESS_CLIENT_ACCOUNT.transactions = journeys;
     LORDBLESS_CLIENT_ACCOUNT.currentTransactionId =
@@ -721,12 +753,14 @@ async function loadAuthenticatedClientJourneyRequests(clientId) {
     try {
         const { data, error } = await lordblessSupabase
             .from("client_journey_requests")
-            .select("id, client_id, service, destination, details, status, created_at, updated_at")
+            .select("id, client_id, service, destination, details, status, assigned_journey_id, created_at, updated_at")
             .eq("client_id", clientId)
             .order("created_at", { ascending: false });
         if (error) throw error;
         if (clientId !== LORDBLESS_CLIENT_ACCOUNT.id || requestUserId !== clientAuthLookupUserId) return;
-        clientJourneyRequests = (data || []).filter(item => item.client_id === clientId);
+        clientJourneyRequests = (data || []).filter(item =>
+            item.client_id === clientId && !item.assigned_journey_id && item.status !== "assigned"
+        );
     } catch (error) {
         clientJourneyRequestError = error?.message || String(error);
         console.error("LORDBLESS CLIENT JOURNEY REQUEST ERROR:", error);
@@ -2491,11 +2525,13 @@ function renderTransactionHistory() {
     const requestMarkup = clientJourneyRequestError
         ? `<p role="alert">Journey requests could not be loaded. ${escapeHTML(clientJourneyRequestError)}</p>`
         : clientJourneyRequests.length
-            ? `<section class="client-journey-requests"><h3>Journey Requests</h3>${clientJourneyRequests.map(request => `
+        ? `<section class="client-journey-requests"><h3>Journey Requests</h3>${clientJourneyRequests.map(request => `
                 <article class="transaction-card">
                     <div class="transaction-main">
                         <div class="transaction-top"><div><span class="transaction-reference">REQUEST ${escapeHTML(request.id.slice(0, 8))}</span><h3>${escapeHTML(request.service)}</h3></div><span class="transaction-status progress">${escapeHTML(request.status.replaceAll("_", " "))}</span></div>
                         <div class="transaction-meta"><span>${escapeHTML(request.destination || "Destination to be discussed")}</span><span>Submitted ${escapeHTML(formatDate(request.created_at))}</span></div>
+                        ${request.details?.client_message ? `<p>${escapeHTML(request.details.client_message)}</p>` : ""}
+                        ${request.details?.review_reason ? `<p>Team update: ${escapeHTML(request.details.review_reason)}</p>` : ""}
                     </div>
                 </article>
             `).join("")}</section>`
@@ -2650,6 +2686,19 @@ function createTransactionCard(
                     ></div>
 
                 </div>
+
+                ${clientJourneyMilestoneError
+                    ? `<p role="alert">Journey progress could not be loaded. ${escapeHTML(clientJourneyMilestoneError)}</p>`
+                    : transaction.milestones?.length
+                        ? `<section class="client-journey-milestones"><h4>Journey milestones</h4><ol>${transaction.milestones.map(milestone => `
+                            <li class="journey-milestone journey-milestone-${escapeHTML(milestone.status)}">
+                                <strong>${escapeHTML(milestone.title)}</strong>
+                                <span>${escapeHTML(milestone.status.replaceAll("_", " "))}</span>
+                                ${milestone.due_date ? `<time datetime="${escapeHTML(milestone.due_date)}">Due ${escapeHTML(formatDate(milestone.due_date))}</time>` : ""}
+                                ${milestone.description ? `<p>${escapeHTML(milestone.description)}</p>` : ""}
+                            </li>
+                        `).join("")}</ol></section>`
+                        : ""}
 
 
                 <div

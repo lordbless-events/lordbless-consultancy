@@ -198,11 +198,13 @@ function renderEnquiryDetail(
 
 
             ${canManageJourneys ? `
-                <section
-                    class="detail-card client-journeys-card"
+                <details
+                    class="detail-card client-detail-accordion client-journeys-card"
                     data-client-journey-panel
                     data-client-id="${escapeHTML(clientId)}"
                     data-enquiry-id="${escapeHTML(enquiry.id || "")}">
+                    <summary><strong>Journeys, requests and milestones</strong></summary>
+                    <div class="client-detail-accordion-content">
                     <h3>Client Journeys</h3>
                     <p>Journeys are created when the consultancy determines the client’s service or case.</p>
                     <div data-client-journey-list role="status" aria-live="polite">
@@ -260,7 +262,8 @@ function renderEnquiryDetail(
                         <button type="submit" class="button button-primary">Create Journey</button>
                         <p data-client-journey-message role="status" aria-live="polite"></p>
                     </form>
-                </section>
+                    </div>
+                </details>
             ` : ""}
 
             <div class="detail-grid">

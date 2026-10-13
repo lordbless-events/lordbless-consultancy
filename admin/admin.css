@@ -520,6 +520,68 @@ body {
     border-radius: var(--radius);
 }
 
+.client-detail-accordion {
+    margin: 0 0 1rem;
+    border: 1px solid rgba(182, 142, 67, 0.35);
+    border-radius: 12px;
+    background: #fff;
+    overflow: hidden;
+}
+
+.client-detail-accordion > summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 1.15rem;
+    color: #10253d;
+    font-weight: 700;
+    cursor: pointer;
+    list-style: none;
+}
+
+.client-detail-accordion > summary::-webkit-details-marker {
+    display: none;
+}
+
+.client-detail-accordion > summary::after {
+    content: "+";
+    color: #a77b2d;
+    font-size: 1.25rem;
+}
+
+.client-detail-accordion[open] > summary::after {
+    content: "−";
+}
+
+.client-detail-accordion-content {
+    padding: 0 1.15rem 1.15rem;
+}
+
+.client-detail-accordion-content.detail-grid {
+    display: grid;
+    gap: 1rem;
+}
+
+.client-payment-complete-status {
+    color: #176044;
+}
+
+.client-workspace-row {
+    display: grid;
+    gap: 0.25rem;
+    margin: 0.65rem 0;
+    padding: 0.8rem 0.9rem;
+    border: 1px solid #e7eaf0;
+    border-radius: 9px;
+    background: #fbfcfe;
+}
+
+.client-workspace-row > span {
+    color: #586679;
+    font-size: 0.9rem;
+}
+
 .detail-card.full-width {
     grid-column: 1 / -1;
 }
