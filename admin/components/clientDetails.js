@@ -284,6 +284,52 @@
         `;
     }
 
+    function renderAppointments(model, clientId) {
+        if (!model.canManageAppointments) return "";
+        const appointments = Array.isArray(model.appointments) ? model.appointments : [];
+        const rows = appointments.length ? appointments.map(appointment => `
+            <article class="detail-card">
+                <h4>${escapeClientDetails(appointment.title || "Appointment")}</h4>
+                <div class="detail-row"><span>When</span><strong>${escapeClientDetails(meetingTimeLabel(appointment))}</strong></div>
+                <div class="detail-row"><span>Duration</span><strong>${escapeClientDetails(appointment.duration_minutes || 30)} minutes</strong></div>
+                <div class="detail-row"><span>Channel</span><strong>${escapeClientDetails(appointment.channel || "—")}</strong></div>
+                <div class="detail-row"><span>Status</span><strong>${escapeClientDetails(appointment.status || "scheduled")}</strong></div>
+                ${appointment.location ? `<div class="detail-row"><span>Location</span><strong>${escapeClientDetails(appointment.location)}</strong></div>` : ""}
+                ${appointment.meeting_link ? `<div class="detail-row"><span>Meeting link</span><strong>${escapeClientDetails(appointment.meeting_link)}</strong></div>` : ""}
+                ${appointment.instructions ? `<p>${escapeClientDetails(appointment.instructions)}</p>` : ""}
+                ${appointment.status === "scheduled" ? `
+                    <button type="button" class="button button-secondary" data-appointment-edit="${escapeClientDetails(appointment.id)}">RESCHEDULE</button>
+                    <button type="button" class="button button-secondary" data-appointment-status="completed" data-appointment-id="${escapeClientDetails(appointment.id)}">MARK COMPLETED</button>
+                    <button type="button" class="button button-secondary" data-appointment-status="cancelled" data-appointment-id="${escapeClientDetails(appointment.id)}">CANCEL APPOINTMENT</button>
+                ` : ""}
+            </article>
+        `).join("") : `<p>No appointments have been scheduled.</p>`;
+
+        return `
+            <section class="detail-card full-width" aria-labelledby="client-appointments-title">
+                <h3 id="client-appointments-title">Appointments</h3>
+                <p>Use this for ongoing client appointments. Initial Assessment &amp; Consultation remains in its payment-gated workflow.</p>
+                ${model.appointmentError ? `<p role="alert">${escapeClientDetails(model.appointmentError)}</p>` : ""}
+                <div class="detail-grid">${rows}</div>
+                <form data-client-appointment-form data-client-id="${escapeClientDetails(clientId)}">
+                    <label>APPOINTMENT TITLE<input name="title" type="text" maxlength="160" required></label>
+                    <label>DATE<input name="meeting_date" type="date" required></label>
+                    <label>START TIME<input name="meeting_time" type="time" required></label>
+                    <label>TIMEZONE<select name="timezone" required>
+                        ${["Europe/Berlin", "Africa/Accra", "UTC", "America/Toronto", "Asia/Shanghai"].map(zone => `<option value="${zone}" ${zone === "Europe/Berlin" ? "selected" : ""}>${zone}</option>`).join("")}
+                    </select></label>
+                    <label>DURATION (MINUTES)<input name="duration_minutes" type="number" min="15" max="480" step="15" value="30" required></label>
+                    <label>CHANNEL<select name="channel"><option value="online">Online</option><option value="whatsapp">WhatsApp</option><option value="phone">Phone</option><option value="in_person">In person</option></select></label>
+                    <label>LOCATION<input name="location" type="text" maxlength="500"></label>
+                    <label>MEETING LINK<input name="meeting_link" type="url" maxlength="2000"></label>
+                    <label>CLIENT INSTRUCTIONS<textarea name="instructions" maxlength="2000"></textarea></label>
+                    <button type="submit" class="button button-primary" data-appointment-submit>SCHEDULE APPOINTMENT</button>
+                </form>
+                <p data-appointment-message role="status" aria-live="polite"></p>
+            </section>
+        `;
+    }
+
     function renderEnquiry(container, model) {
         const enquiry = model.enquiry || {};
         const client = { ...(enquiry.client || {}), ...(model.client || {}) };
@@ -353,6 +399,8 @@
                     ${serviceSections(enquiry)}
 
                     ${renderAssessment(model, model.clientId)}
+
+                    ${renderAppointments(model, model.clientId)}
 
                     <section class="detail-card full-width">
                         <h3>Additional Information</h3>

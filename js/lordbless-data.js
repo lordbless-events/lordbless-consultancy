@@ -13,10 +13,7 @@ async function getClientDocuments(clientId) {
         await lordblessSupabase
             .from("client_documents")
             .select("*")
-            .eq("client_id", clientId)
-            .order("uploaded_at", {
-                ascending: false
-            });
+            .eq("client_id", clientId);
 
     if (error) {
         console.error(
@@ -27,7 +24,10 @@ async function getClientDocuments(clientId) {
         throw error;
     }
 
-    return data || [];
+    return (data || []).sort((left, right) =>
+        new Date(right.uploaded_at || right.created_at || 0).getTime() -
+        new Date(left.uploaded_at || left.created_at || 0).getTime()
+    );
 }
 
 

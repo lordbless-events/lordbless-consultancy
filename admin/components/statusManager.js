@@ -83,6 +83,12 @@ function renderStatusSelector(
                 data-reference="${escapeHTML(
                     enquiry.reference
                 )}"
+                ${
+                    typeof hasPermission === "function" &&
+                    !hasPermission(getCurrentUser(), "enquiries.write")
+                        ? "disabled"
+                        : ""
+                }
             >
 
                 ${statuses
@@ -110,6 +116,8 @@ function renderStatusSelector(
 
             </select>
 
+            <span data-enquiry-status-message role="status" aria-live="polite"></span>
+
         </div>
 
     `;
@@ -136,50 +144,29 @@ function initialiseStatusManager(
     }
 
 
-    select.addEventListener(
-        "change",
-        event => {
+    select.addEventListener("change", async event => {
+        const nextStatus = event.target.value;
+        const previousStatus = enquiry.status;
+        const message = select.parentElement?.querySelector("[data-enquiry-status-message]");
 
-            const newStatus =
-                event.target.value;
-
-
-            enquiry.status =
-                newStatus;
-
-
-            if (
-                typeof renderEnquiries ===
-                "function"
-            ) {
-
-                renderEnquiries();
-
-            }
-
-
-            if (
-                typeof renderDashboard ===
-                "function"
-            ) {
-
-                renderDashboard();
-
-            }
-
-
-            if (
-                typeof openEnquiry ===
-                "function"
-            ) {
-
-                openEnquiry(
-                    enquiry.reference
-                );
-
-            }
-
+        if (typeof window.LORDBLESS_ADMIN_UPDATE_ENQUIRY_STATUS !== "function") {
+            select.value = previousStatus;
+            return;
         }
-    );
+
+        select.disabled = true;
+        if (message) message.textContent = "Saving…";
+
+        const result = await window.LORDBLESS_ADMIN_UPDATE_ENQUIRY_STATUS(enquiry, nextStatus);
+        if (!result.ok) {
+            select.value = previousStatus;
+            select.disabled = false;
+            if (message) message.textContent = result.error;
+            return;
+        }
+
+        if (typeof renderDashboard === "function") renderDashboard();
+        if (typeof openEnquiry === "function") openEnquiry(enquiry.reference);
+    });
 
 }

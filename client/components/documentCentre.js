@@ -2855,6 +2855,15 @@ function handleUniversalUpload(
             ? otherInput.value.trim()
             : selectedDefinition.name;
 
+    const localDevelopment = window.location.protocol === "file:" ||
+        ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+    if (!localDevelopment) {
+        showDocumentMessage(
+            "Secure document upload is not available yet. This file has not been sent or saved. Contact LORDBLESS CONSULTANCY for an approved submission method."
+        );
+        return;
+    }
+
 
     /*
      * MOCK ONLY

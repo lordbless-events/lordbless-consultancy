@@ -14,6 +14,22 @@ const state = {
 
     enquiries: [],
 
+    portalClients: [],
+
+    portalClientAccounts: [],
+
+    portalClientsLoadedForUser: null,
+
+    portalClientLoadError: "",
+
+    adminDocuments: [],
+
+    adminDocumentRequests: [],
+
+    adminDocumentsLoadedForUser: null,
+
+    adminDocumentLoadError: "",
+
     journeys: [],
 
     journeyLoadError: "",
@@ -191,6 +207,14 @@ function applyAdminAuthSession(session) {
         window.LORDBLESS_CURRENT_USER = null;
 
         state.enquiries = [];
+        state.portalClients = [];
+        state.portalClientAccounts = [];
+        state.portalClientsLoadedForUser = null;
+        state.portalClientLoadError = "";
+        state.adminDocuments = [];
+        state.adminDocumentRequests = [];
+        state.adminDocumentsLoadedForUser = null;
+        state.adminDocumentLoadError = "";
         state.journeys = [];
         state.journeyLoadError = "";
         state.journeyAssignees = [];
@@ -2786,16 +2810,16 @@ function renderView(
         case "clients":
 
             renderAdminClients();
+            void loadAdminPortalClients().then(() => {
+                if (state.currentView === "clients") renderAdminClients();
+            });
 
             break;
 
 
         case "followups":
 
-            renderPlaceholder(
-                "Follow-ups",
-                "Follow-up management will appear here."
-            );
+            void renderFollowupsWorkspace();
 
             break;
 
@@ -2900,7 +2924,12 @@ function getAdminClients() {
     }
 
 
+    const isLocalDevelopment =
+        window.location.protocol === "file:" ||
+        ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+
     const fixtureClients =
+        isLocalDevelopment &&
         Array.isArray(
             LORDBLESS_ADMIN_DOCUMENT_DATA.clients
         )
@@ -2919,8 +2948,10 @@ function getAdminClients() {
 
     const clients = [
         ...fixtureClients,
+        ...(state.portalClients || []),
         ...enquiryClients.filter(client =>
-            !fixtureClients.some(fixture => fixture.id === client.id)
+            !fixtureClients.some(fixture => fixture.id === client.id) &&
+            !(state.portalClients || []).some(profile => profile.id === client.id)
         )
     ];
 
@@ -2931,6 +2962,69 @@ function getAdminClients() {
             )
     );
 
+}
+
+
+async function loadAdminPortalClients() {
+    const user = state.adminIdentity;
+    if (!user?.isOverallAdmin || state.portalClientsLoadedForUser === user.id) return;
+
+    state.portalClientsLoadedForUser = user.id;
+    state.portalClientLoadError = "";
+
+    try {
+        const { data: accounts, error: accountError } = await lordblessSupabase
+            .from("client_accounts")
+            .select("client_id, access_status, activated_at");
+        if (accountError) throw accountError;
+
+        const accountRows = Array.isArray(accounts) ? accounts : [];
+        const clientIds = [...new Set(accountRows.map(account => account.client_id).filter(Boolean))];
+        if (!clientIds.length) {
+            state.portalClients = [];
+            state.portalClientAccounts = accountRows;
+            return;
+        }
+
+        let clientResult = await lordblessSupabase
+            .from("clients")
+            .select("id, client_code, full_name, email, whatsapp, current_country, nationality")
+            .in("id", clientIds);
+
+        if (
+            clientResult.error &&
+            /client_code/i.test(clientResult.error.message || "") &&
+            /(column|schema cache|does not exist|could not find)/i.test(clientResult.error.message || "")
+        ) {
+            clientResult = await lordblessSupabase
+                .from("clients")
+                .select("id, full_name, email, whatsapp, current_country, nationality")
+                .in("id", clientIds);
+        }
+
+        if (clientResult.error) throw clientResult.error;
+
+        const accountsByClient = new Map(accountRows.map(account => [account.client_id, account]));
+        state.portalClients = (clientResult.data || []).map(client => {
+            const account = accountsByClient.get(client.id);
+            const name = client.full_name || "Client";
+            return {
+                ...client,
+                name,
+                fullName: name,
+                clientCode: client.client_code || "",
+                currentCountry: client.current_country || "",
+                accessStatus: account?.access_status || "",
+                activatedAt: account?.activated_at || ""
+            };
+        });
+        state.portalClientAccounts = accountRows;
+        await loadAdminDocumentRecords();
+    } catch (error) {
+        state.portalClientLoadError = error?.message || String(error);
+        state.portalClientsLoadedForUser = null;
+        console.error("LORDBLESS ADMIN CLIENT DIRECTORY ERROR:", error);
+    }
 }
 
 
@@ -3299,7 +3393,8 @@ function getAdminClientDocuments(
             )
         );
 
-    return LORDBLESS_ADMIN_DOCUMENT_DATA.documents
+    const records = getCurrentAdminDocumentRecords();
+    return records
         .filter(
             document =>
                 document.clientId === clientId
@@ -3328,6 +3423,95 @@ function getAdminClientDocuments(
 }
 
 
+function isAdminDocumentLocalDevelopment() {
+    return window.location.protocol === "file:" ||
+        ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+}
+
+
+function getCurrentAdminDocumentRecords() {
+    return isAdminDocumentLocalDevelopment()
+        ? LORDBLESS_ADMIN_DOCUMENT_DATA.documents
+        : Array.isArray(state.adminDocuments) ? state.adminDocuments : [];
+}
+
+
+function getCurrentAdminDocumentRequests() {
+    return isAdminDocumentLocalDevelopment()
+        ? LORDBLESS_ADMIN_DOCUMENT_DATA.requests
+        : Array.isArray(state.adminDocumentRequests) ? state.adminDocumentRequests : [];
+}
+
+
+async function loadAdminDocumentRecords() {
+    if (isAdminDocumentLocalDevelopment()) {
+        initialiseAdminDocumentData();
+        return;
+    }
+    const user = state.adminIdentity;
+    if (!user?.id || state.adminDocumentsLoadedForUser === user.id) return;
+    state.adminDocumentsLoadedForUser = user.id;
+    state.adminDocuments = [];
+    state.adminDocumentRequests = [];
+    state.adminDocumentLoadError = "";
+    if (!hasPermission(getCurrentUser(), "documents.read")) {
+        state.adminDocumentLoadError = "Document read permission is required to view client documents.";
+        return;
+    }
+
+    const [documentsResult, requestsResult] = await Promise.all([
+        lordblessSupabase.from("client_documents").select("*"),
+        lordblessSupabase.from("document_requests").select("*")
+    ]);
+    const clients = getAdminClients();
+    if (documentsResult.error) {
+        state.adminDocumentLoadError = documentsResult.error.message || "Client documents could not be loaded.";
+    } else {
+        state.adminDocuments = (documentsResult.data || []).map(row => {
+            const client = clients.find(item => item.id === row.client_id);
+            return {
+                ...row,
+                id: row.id,
+                clientId: row.client_id,
+                clientName: client?.name || row.client_name || "Client",
+                type: row.document_type || row.type || "other",
+                name: row.document_name || row.name || row.title || row.document_type || "Document",
+                filename: row.file_name || row.original_filename || row.filename || "",
+                status: row.status || row.review_status || "uploaded",
+                issueDate: row.issue_date || row.issued_at || null,
+                expiryDate: row.expiry_date || row.expires_at || null,
+                transactionId: row.journey_id || row.client_journey_id || null,
+                uploadedAt: row.uploaded_at || row.created_at || null,
+                databaseDocument: true
+            };
+        });
+    }
+    if (requestsResult.error) {
+        state.adminDocumentLoadError = [state.adminDocumentLoadError, requestsResult.error.message || "Document requests could not be loaded."]
+            .filter(Boolean).join(" ");
+    } else {
+        state.adminDocumentRequests = (requestsResult.data || []).map(row => {
+            const client = clients.find(item => item.id === row.client_id);
+            const journey = getAdminClientJourneys(row.client_id).find(item => item.id === (row.journey_id || row.client_journey_id));
+            const requestedName = row.document_name || row.document_type || row.title || "Document";
+            return {
+                ...row,
+                id: row.id,
+                clientId: row.client_id,
+                clientName: client?.name || "Client",
+                transactionId: row.journey_id || row.client_journey_id || null,
+                transactionTitle: journey?.title || "",
+                documentNames: Array.isArray(row.document_names) ? row.document_names : [requestedName],
+                status: row.status || "requested",
+                deadline: row.due_date || row.deadline || "",
+                message: row.message || row.notes || "",
+                databaseRequest: true
+            };
+        });
+    }
+}
+
+
 function getAdminClientStatus(
     clientId
 ) {
@@ -3338,20 +3522,33 @@ function getAdminClientStatus(
         );
 
 
-    if (!journey) {
+    const account = state.portalClientAccounts.find(item => item.client_id === clientId);
 
+    if (account?.access_status === "active") {
         return {
-            value: "inactive",
-            label: "No Active Journey"
+            value: "active",
+            label: journey
+                ? `Portal Active · Journey ${journey.status}`
+                : "Portal Active · No Journey Assigned"
         };
-
     }
 
+    if (account?.access_status === "activation_required") {
+        return { value: "limited", label: "Limited Portal Access" };
+    }
 
-    return {
-        value: "active",
-        label: "Active"
-    };
+    if (account?.access_status === "invited") {
+        return { value: "invited", label: "Invitation Pending" };
+    }
+
+    if (journey) {
+        return {
+            value: "journey",
+            label: `Journey ${journey.status} · Portal Not Active`
+        };
+    }
+
+    return { value: "inactive", label: "Prospective Enquiry" };
 
 }
 
@@ -3391,9 +3588,11 @@ function getFilteredAdminClients() {
             const searchableText = [
 
                 client.id,
+                client.clientCode,
                 client.name,
                 client.fullName,
                 client.email,
+                status.label,
 
                 journey
                     ? journey.id
@@ -3425,6 +3624,7 @@ function getFilteredAdminClients() {
 
             const matchesStatus =
                 statusFilter === "all" ||
+                (statusFilter === "invited_or_limited" && ["invited", "limited"].includes(status.value)) ||
                 status.value === statusFilter;
 
 
@@ -3444,6 +3644,12 @@ function getFilteredAdminClients() {
 ========================================================= */
 
 function renderAdminClients() {
+
+    if (!isAdminDocumentLocalDevelopment() && state.adminIdentity?.id && state.adminDocumentsLoadedForUser !== state.adminIdentity.id) {
+        void loadAdminDocumentRecords().then(() => {
+            if (state.currentView === "clients") renderAdminClients();
+        });
+    }
 
     const clients =
         getFilteredAdminClients();
@@ -3525,7 +3731,21 @@ function renderAdminClients() {
                                     : ""
                             }
                         >
-                            Active
+                            Portal active
+                        </option>
+
+                        <option
+                            value="journey"
+                            ${LORDBLESS_ADMIN_CLIENT_STATE.statusFilter === "journey" ? "selected" : ""}
+                        >
+                            Journey assigned, portal not active
+                        </option>
+
+                        <option
+                            value="invited_or_limited"
+                            ${LORDBLESS_ADMIN_CLIENT_STATE.statusFilter === "invited_or_limited" ? "selected" : ""}
+                        >
+                            Invited or limited access
                         </option>
 
                         <option
@@ -3536,7 +3756,7 @@ function renderAdminClients() {
                                     : ""
                             }
                         >
-                            No active journey
+                            Prospective enquiry
                         </option>
 
                     </select>
@@ -3547,6 +3767,8 @@ function renderAdminClients() {
 
 
             <div class="lbc-client-list">
+
+                ${state.portalClientLoadError ? `<p class="section-subtitle" role="alert">Activated client accounts could not be loaded: ${escapeHTML(state.portalClientLoadError)}</p>` : ""}
 
                 ${
                     clients.length
@@ -4833,28 +5055,15 @@ window.LORDBLESS_ADMIN_ACCESS = {
 
 function getAdminDocumentWorkspaceData() {
 
-    initialiseAdminDocumentData();
+    if (isAdminDocumentLocalDevelopment()) initialiseAdminDocumentData();
 
-    const documents =
-        Array.isArray(LORDBLESS_ADMIN_DOCUMENT_DATA.documents)
-            ? LORDBLESS_ADMIN_DOCUMENT_DATA.documents.filter(
-                canCurrentAdminAccessDocument
-            )
-            : [];
+    const documents = getCurrentAdminDocumentRecords()
+        .filter(canCurrentAdminAccessDocument);
 
-    const requests =
-        Array.isArray(LORDBLESS_ADMIN_DOCUMENT_DATA.requests)
-            ? LORDBLESS_ADMIN_DOCUMENT_DATA.requests.filter(
-                canCurrentAdminAccessDocumentRequest
-            )
-            : [];
+    const requests = getCurrentAdminDocumentRequests()
+        .filter(canCurrentAdminAccessDocumentRequest);
 
-    const clients =
-        Array.isArray(LORDBLESS_ADMIN_DOCUMENT_DATA.clients)
-            ? LORDBLESS_ADMIN_DOCUMENT_DATA.clients.filter(
-                client => canCurrentAdminAccessClient(client.id)
-            )
-            : [];
+    const clients = getAdminClients();
 
     return {
         documents,
@@ -4923,9 +5132,12 @@ function getFilteredAdminDocuments() {
 }
 
 
-function renderAdminDocuments() {
+async function renderAdminDocuments() {
 
     try {
+
+        appContent.innerHTML = `<section class="admin-section"><p>Loading client documents…</p></section>`;
+        await loadAdminDocumentRecords();
 
         const data = getAdminDocumentWorkspaceData();
 
@@ -5006,6 +5218,7 @@ function renderAdminDocuments() {
                             Review, track and manage permanent client documents
                             and journey-specific document requests.
                         </p>
+                        ${state.adminDocumentLoadError ? `<p role="alert">${escapeHTML(state.adminDocumentLoadError)}</p>` : ""}
 
                     </div>
 
@@ -5015,6 +5228,7 @@ function renderAdminDocuments() {
                             type="button"
                             id="admin-create-document-request"
                             class="lbc-document-btn lbc-document-btn-primary"
+                            ${isAdminDocumentLocalDevelopment() ? "" : "disabled title=\"No authorized database-backed creation workflow is configured\""}
                         >
                             + Request Document
                         </button>
@@ -5830,7 +6044,7 @@ function getAdminDocumentAttention(document) {
 function openAdminDocumentReview(documentId) {
 
     const selected =
-        LORDBLESS_ADMIN_DOCUMENT_DATA.documents.find(
+        getCurrentAdminDocumentRecords().find(
             document => document.id === documentId
         );
 
@@ -5839,9 +6053,56 @@ function openAdminDocumentReview(documentId) {
     }
 
     const client =
-        LORDBLESS_ADMIN_DOCUMENT_DATA.clients.find(
+        getAdminClients().find(
             item => item.id === selected.clientId
         );
+
+    if (selected.databaseDocument) {
+        modalContent.innerHTML = `
+            <div class="lbc-document-modal-content">
+                <h3>${escapeHTML(selected.name || "Document")}</h3>
+                <div class="lbc-client-document-meta"><strong>Client</strong><span>${escapeHTML(client?.name || selected.clientName || "—")}</span></div>
+                <div class="lbc-client-document-meta"><strong>File name</strong><span>${escapeHTML(selected.filename || "Not available")}</span></div>
+                <div class="lbc-client-document-meta"><strong>Status</strong><span>${escapeHTML(getAdminDocumentStatusLabel(selected.status))}</span></div>
+                <div class="lbc-client-document-meta"><strong>Uploaded</strong><span>${escapeHTML(formatDate(selected.uploadedAt))}</span></div>
+                <p>Private file preview and download are unavailable until the production Storage bucket and its access policies are confirmed.</p>
+                ${hasPermission(getCurrentUser(), "documents.review") ? `
+                    <label>DOCUMENT STATUS
+                        <select data-database-document-status>
+                            ${["uploaded", "reviewing", "approved", "rejected", "expired", "waived"].map(status => `<option value="${status}" ${selected.status === status ? "selected" : ""}>${escapeHTML(getAdminDocumentStatusLabel(status))}</option>`).join("")}
+                        </select>
+                    </label>
+                    <button type="button" class="button button-primary" data-save-database-document-status>Save status</button>
+                    <p data-database-document-message role="status" aria-live="polite"></p>
+                ` : `<p>Document review permission is required to change this status.</p>`}
+            </div>
+        `;
+        modalContent.querySelector("[data-save-database-document-status]")?.addEventListener("click", async event => {
+            const button = event.currentTarget;
+            const nextStatus = modalContent.querySelector("[data-database-document-status]")?.value;
+            const message = modalContent.querySelector("[data-database-document-message]");
+            button.disabled = true;
+            if (message) message.textContent = "Saving review status…";
+            try {
+                const { data, error } = await lordblessSupabase.from("client_documents")
+                .update({ status: nextStatus })
+                .eq("id", selected.id)
+                .eq("client_id", selected.clientId)
+                .select("id, status")
+                .maybeSingle();
+                if (error) throw error;
+                if (!data) throw new Error("The document status change was not confirmed.");
+                state.adminDocumentsLoadedForUser = null;
+                await renderAdminDocuments();
+                if (message) message.textContent = "Document status saved.";
+            } catch (error) {
+                if (message) message.textContent = error?.message || "Unable to save the document status.";
+                button.disabled = false;
+            }
+        });
+        enquiryModal.classList.remove("hidden");
+        return;
+    }
 
     const transaction =
         LORDBLESS_DOCUMENT_JOURNEYS.find(
@@ -5917,7 +6178,7 @@ function openAdminDocumentReview(documentId) {
 function openAdminDocumentRequest(requestId) {
 
     const request =
-        LORDBLESS_ADMIN_DOCUMENT_DATA.requests.find(
+        getCurrentAdminDocumentRequests().find(
             item => item.id === requestId
         );
 
@@ -5977,6 +6238,11 @@ function openAdminDocumentRequest(requestId) {
 ========================================================= */
 
 function openNewAdminDocumentRequest() {
+
+    if (!isAdminDocumentLocalDevelopment()) {
+        window.alert("Document request creation has no confirmed database-backed write workflow yet. No request was created.");
+        return;
+    }
 
     /* =====================================================
        D4 — DOCUMENT REQUEST SETUP
@@ -7240,6 +7506,63 @@ function renderEnquiries() {
 }
 
 
+async function updateAdminEnquiryStatus(enquiry, nextStatus) {
+
+    const allowedStatuses = Array.isArray(LORDBLESS_MOCK_DATA.statuses)
+        ? LORDBLESS_MOCK_DATA.statuses
+        : [];
+
+    if (!enquiry || !allowedStatuses.includes(nextStatus)) {
+        return { ok: false, error: "Choose a valid enquiry status." };
+    }
+
+    if (!hasPermission(getCurrentUser(), "enquiries.write")) {
+        return { ok: false, error: "You do not have permission to update enquiries." };
+    }
+
+    const previousStatus = enquiry.status;
+
+    try {
+        if (state.enquiryDataSource === "supabase") {
+            const { data, error } = await lordblessSupabase.rpc(
+                "update_enquiry_status",
+                {
+                    p_enquiry_id: enquiry.id,
+                    p_status: nextStatus
+                }
+            );
+
+            if (error) throw error;
+            if (data !== nextStatus) {
+                throw new Error("The enquiry status was not confirmed as saved.");
+            }
+        } else if (
+            window.location.protocol !== "file:" &&
+            !["localhost", "127.0.0.1", "::1"].includes(window.location.hostname)
+        ) {
+            throw new Error("Enquiry status persistence is unavailable until the status update migration is applied.");
+        }
+
+        enquiry.status = nextStatus;
+        state.enquiries = state.enquiries.map(item =>
+            item.id === enquiry.id ? { ...item, status: nextStatus } : item
+        );
+
+        if (["dashboard", "enquiries"].includes(state.currentView)) {
+            renderView(state.currentView);
+        }
+
+        return { ok: true };
+    } catch (error) {
+        enquiry.status = previousStatus;
+        return { ok: false, error: error?.message || String(error) };
+    }
+}
+
+
+window.LORDBLESS_ADMIN_UPDATE_ENQUIRY_STATUS = updateAdminEnquiryStatus;
+
+
 /* =========================================
    FILTER ENQUIRIES
 ========================================= */
@@ -7424,9 +7747,20 @@ function enquiryTable(
 
 
                                 <td>
-                                    ${renderStatusBadge(
-                                        enquiry.status
-                                    )}
+                                    <select
+                                        class="filter-select enquiry-status-select"
+                                        data-enquiry-status
+                                        data-enquiry-reference="${escapeHTML(enquiry.reference || "")}"
+                                        aria-label="Update status for ${escapeHTML(enquiry.reference || "this enquiry")}"
+                                        ${hasPermission(getCurrentUser(), "enquiries.write") ? "" : "disabled"}
+                                    >
+                                        ${LORDBLESS_MOCK_DATA.statuses.map(status => `
+                                            <option value="${escapeHTML(status)}" ${enquiry.status === status ? "selected" : ""}>
+                                                ${escapeHTML(LORDBLESS_STATUS_LABELS[status] || status)}
+                                            </option>
+                                        `).join("")}
+                                    </select>
+                                    <span data-enquiry-status-message role="status" aria-live="polite"></span>
                                 </td>
 
 
@@ -7473,6 +7807,31 @@ function enquiryTable(
 ========================================= */
 
 function attachEnquiryRows() {
+
+    document.querySelectorAll("[data-enquiry-status]").forEach(select => {
+        select.addEventListener("click", event => event.stopPropagation());
+        select.addEventListener("change", async () => {
+            const enquiry = state.enquiries.find(item =>
+                item.reference === select.dataset.enquiryReference
+            );
+            const previousStatus = enquiry?.status || "new";
+            const message = select.parentElement?.querySelector("[data-enquiry-status-message]");
+            if (!enquiry) return;
+
+            select.disabled = true;
+            if (message) message.textContent = "Saving…";
+
+            const result = await updateAdminEnquiryStatus(enquiry, select.value);
+            if (!result.ok) {
+                select.value = previousStatus;
+                select.disabled = !hasPermission(getCurrentUser(), "enquiries.write");
+                if (message) message.textContent = result.error;
+                return;
+            }
+
+            if (message) message.textContent = "Saved";
+        });
+    });
 
     document
         .querySelectorAll(
@@ -7549,7 +7908,10 @@ function renderAdminEnquiryClientView(enquiry, portalState) {
             assessmentPayment: portalState?.assessmentPayment || null,
             consultationMeeting: portalState?.consultationMeeting || null,
             consultationEmail: portalState?.consultationEmail || null,
-            assessmentError: portalState?.assessmentError || ""
+            assessmentError: portalState?.assessmentError || "",
+            appointments: portalState?.appointments || [],
+            appointmentError: portalState?.appointmentError || "",
+            canManageAppointments: hasPermission(getCurrentUser(), "consultations.manage")
         }
     );
 
@@ -7681,45 +8043,58 @@ async function loadAdminAssessmentState(clientId) {
         assessmentPayment: null,
         consultationMeeting: null,
         consultationEmail: null,
-        assessmentError: ""
+        assessmentError: "",
+        appointments: [],
+        appointmentError: ""
     };
-    if (!hasPermission(getCurrentUser(), "finance.read")) return result;
-
-    const { data: payment, error: paymentError } = await lordblessSupabase
-        .from("client_assessment_payments")
-        .select("*")
-        .eq("client_id", clientId)
-        .maybeSingle();
-    if (paymentError) {
-        result.assessmentError = paymentError.message || "Assessment payment data is unavailable.";
-        return result;
-    }
-    result.assessmentPayment = payment || null;
-
-    if (!payment && hasPermission(getCurrentUser(), "finance.requests")) {
-        const { data: account, error: accountError } = await lordblessSupabase
-            .from("client_accounts")
-            .select("access_status")
+    if (hasPermission(getCurrentUser(), "finance.read")) {
+        const { data: payment, error: paymentError } = await lordblessSupabase
+            .from("client_assessment_payments")
+            .select("*")
             .eq("client_id", clientId)
             .maybeSingle();
-        if (accountError) {
-            result.assessmentError = accountError.message || "Client onboarding status is unavailable.";
-        } else if (["invited", "activation_required"].includes(account?.access_status)) {
-            const { data: ensuredRequest, error: ensureError } = await lordblessSupabase.rpc(
-                "request_initial_assessment_payment",
-                { p_client_id: clientId }
-            );
-            if (ensureError) {
-                result.assessmentError = ensureError.message || "The initial assessment request could not be ensured.";
-            } else {
-                result.assessmentPayment = ensuredRequest?.payment || null;
-                LORDBLESS_ASSESSMENT_FINANCE_LOADED = false;
-                LORDBLESS_ASSESSMENT_FINANCE_LOADED_AT = 0;
+        if (paymentError) {
+            result.assessmentError = paymentError.message || "Assessment payment data is unavailable.";
+        } else {
+            result.assessmentPayment = payment || null;
+
+            if (!payment && hasPermission(getCurrentUser(), "finance.requests")) {
+                const { data: account, error: accountError } = await lordblessSupabase
+                    .from("client_accounts")
+                    .select("access_status")
+                    .eq("client_id", clientId)
+                    .maybeSingle();
+                if (accountError) {
+                    result.assessmentError = accountError.message || "Client onboarding status is unavailable.";
+                } else if (["invited", "activation_required"].includes(account?.access_status)) {
+                    const { data: ensuredRequest, error: ensureError } = await lordblessSupabase.rpc(
+                        "request_initial_assessment_payment",
+                        { p_client_id: clientId }
+                    );
+                    if (ensureError) {
+                        result.assessmentError = ensureError.message || "The initial assessment request could not be ensured.";
+                    } else {
+                        result.assessmentPayment = ensuredRequest?.payment || null;
+                        LORDBLESS_ASSESSMENT_FINANCE_LOADED = false;
+                        LORDBLESS_ASSESSMENT_FINANCE_LOADED_AT = 0;
+                    }
+                }
             }
         }
     }
 
     if (!hasPermission(getCurrentUser(), "consultations.manage")) return result;
+    const { data: appointments, error: appointmentsError } = await lordblessSupabase
+        .from("client_appointments")
+        .select("*")
+        .eq("client_id", clientId)
+        .order("starts_at", { ascending: false });
+    if (appointmentsError) {
+        result.appointmentError = appointmentsError.message || "Appointment data is unavailable.";
+    } else {
+        result.appointments = appointments || [];
+    }
+
     const { data: meeting, error: meetingError } = await lordblessSupabase
         .from("client_consultation_meetings")
         .select("*")
@@ -7915,6 +8290,88 @@ function bindAdminAssessmentActions(enquiry, portalState) {
             await refreshAdminClientAssessment(enquiry, portalState, result);
         });
     });
+
+    const appointmentForm = modalContent.querySelector("[data-client-appointment-form]");
+    if (appointmentForm) appointmentForm.addEventListener("submit", async event => {
+        event.preventDefault();
+        const button = appointmentForm.querySelector('[type="submit"]');
+        const message = modalContent.querySelector("[data-appointment-message]");
+        const fields = new FormData(appointmentForm);
+        button.disabled = true;
+        if (message) message.textContent = "Saving appointment and creating the Client Portal message…";
+        try {
+            const { error } = await lordblessSupabase.rpc("save_client_appointment", {
+                p_client_id: appointmentForm.dataset.clientId,
+                p_appointment_id: appointmentForm.dataset.appointmentId || null,
+                p_title: String(fields.get("title") || "").trim(),
+                p_local_start: `${fields.get("meeting_date")}T${fields.get("meeting_time")}:00`,
+                p_timezone: fields.get("timezone"),
+                p_duration_minutes: Number(fields.get("duration_minutes")),
+                p_channel: fields.get("channel"),
+                p_location: fields.get("location") || null,
+                p_meeting_link: fields.get("meeting_link") || null,
+                p_instructions: fields.get("instructions") || null
+            });
+            if (error) throw error;
+            await refreshAdminClientAssessment(enquiry, portalState, appointmentForm.dataset.appointmentId
+                ? "Appointment rescheduled. A message is available in the Client Portal."
+                : "Appointment saved. A message is available in the Client Portal.");
+        } catch (error) {
+            if (message) message.textContent = error?.message || "Unable to save the appointment.";
+            button.disabled = false;
+        }
+    });
+
+    modalContent.querySelectorAll("[data-appointment-edit]").forEach(button => {
+        button.addEventListener("click", () => {
+            const appointment = (portalState?.appointments || []).find(item => String(item.id) === button.dataset.appointmentEdit);
+            if (!appointment) return;
+            const form = modalContent.querySelector("[data-client-appointment-form]");
+            if (!form) return;
+            const setField = (name, value) => {
+                const input = form.elements.namedItem(name);
+                if (input) input.value = value ?? "";
+            };
+            const parts = new Intl.DateTimeFormat("en-CA", {
+                timeZone: appointment.timezone || "UTC",
+                year: "numeric", month: "2-digit", day: "2-digit",
+                hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+            }).formatToParts(new Date(appointment.starts_at));
+            const part = type => parts.find(item => item.type === type)?.value || "";
+            setField("title", appointment.title);
+            setField("meeting_date", `${part("year")}-${part("month")}-${part("day")}`);
+            setField("meeting_time", `${part("hour")}:${part("minute")}`);
+            setField("timezone", appointment.timezone || "UTC");
+            setField("duration_minutes", appointment.duration_minutes || 30);
+            setField("channel", appointment.channel || "online");
+            setField("location", appointment.location || "");
+            setField("meeting_link", appointment.meeting_link || "");
+            setField("instructions", appointment.instructions || "");
+            form.dataset.appointmentId = appointment.id;
+            const submit = form.querySelector("[data-appointment-submit]");
+            if (submit) submit.textContent = "SAVE RESCHEDULED APPOINTMENT";
+            form.scrollIntoView({ behavior: "smooth", block: "center" });
+        });
+    });
+
+    modalContent.querySelectorAll("[data-appointment-status]").forEach(button => {
+        button.addEventListener("click", async () => {
+            button.disabled = true;
+            const message = modalContent.querySelector("[data-appointment-message]");
+            if (message) message.textContent = "Updating appointment status…";
+            try {
+                const { error } = await lordblessSupabase.rpc("set_client_appointment_status", {
+                    p_appointment_id: button.dataset.appointmentId,
+                    p_status: button.dataset.appointmentStatus
+                });
+                if (error) throw error;
+                await refreshAdminClientAssessment(enquiry, portalState, "Appointment updated and the Client Portal message was created.");
+            } catch (error) {
+                if (message) message.textContent = error?.message || "Unable to update the appointment.";
+                button.disabled = false;
+            }
+        });
+    });
 }
 
 
@@ -8017,6 +8474,77 @@ function renderAdminJourneyPanel(clientId) {
         }
     }
 
+    const requestList = panel.querySelector("[data-client-journey-request-list]");
+    const requestSelect = panel.querySelector('[name="request_id"]');
+    if (requestList) {
+        requestList.textContent = "Loading journey requests…";
+        void lordblessSupabase
+            .from("client_journey_requests")
+            .select("id, client_id, service, destination, details, status, assigned_journey_id, created_at")
+            .eq("client_id", clientId)
+            .order("created_at", { ascending: false })
+            .then(({ data, error }) => {
+                if (!panel.isConnected || panel.dataset.clientId !== clientId) return;
+                if (error) {
+                    requestList.textContent = `Journey requests could not be loaded: ${error.message}`;
+                    return;
+                }
+
+                const requests = data || [];
+                requestList.innerHTML = requests.length ? requests.map(request => `
+                    <article class="client-journey-summary">
+                        <strong>${escapeHTML(request.service)}</strong>
+                        <span>${escapeHTML(request.destination || "Destination not specified")} · ${escapeHTML(request.status.replaceAll("_", " "))}</span>
+                        <span>${escapeHTML(request.details?.client_message || "")}</span>
+                        ${request.assigned_journey_id ? `<span>Assigned journey: ${escapeHTML(request.assigned_journey_id)}</span>` : ""}
+                        <div>
+                            ${request.assigned_journey_id || !["requested", "in_review", "approved"].includes(request.status) ? "" : `<button type="button" class="button button-secondary" data-use-journey-request="${escapeHTML(request.id)}">Prepare Assignment</button>`}
+                            ${request.assigned_journey_id ? "" : `<select class="filter-select" data-journey-request-status="${escapeHTML(request.id)}" aria-label="Update request status"><option value="requested" ${request.status === "requested" ? "selected" : ""}>Requested</option><option value="in_review" ${request.status === "in_review" ? "selected" : ""}>In review</option><option value="approved" ${request.status === "approved" ? "selected" : ""}>Approved</option><option value="rejected" ${request.status === "rejected" ? "selected" : ""}>Rejected</option><option value="cancelled" ${request.status === "cancelled" ? "selected" : ""}>Cancelled</option></select>`}
+                        </div>
+                    </article>
+                `).join("") : "<p>No client journey requests have been submitted.</p>";
+
+                if (requestSelect) {
+                    requestSelect.innerHTML = `<option value="">Create a staff-planned journey</option>` + requests
+                        .filter(request => !request.assigned_journey_id && ["requested", "in_review", "approved"].includes(request.status))
+                        .map(request => `<option value="${escapeHTML(request.id)}">${escapeHTML(request.service)} · ${escapeHTML(request.destination || "No destination")}</option>`)
+                        .join("");
+                }
+
+                requestList.querySelectorAll("[data-use-journey-request]").forEach(button => {
+                    button.addEventListener("click", () => {
+                        const request = requests.find(item => item.id === button.dataset.useJourneyRequest);
+                        if (!request || !form) return;
+                        if (requestSelect) requestSelect.value = request.id;
+                        form.elements.journey_type.value = request.service;
+                        form.elements.title.value = `${request.service}${request.destination ? ` · ${request.destination}` : ""}`;
+                        form.elements.destination.value = request.destination || "";
+                        form.elements.service.value = request.service;
+                        form.scrollIntoView({ behavior: "smooth", block: "center" });
+                    });
+                });
+
+                requestList.querySelectorAll("[data-journey-request-status]").forEach(select => {
+                    select.addEventListener("change", async () => {
+                        select.disabled = true;
+                        const result = await lordblessSupabase
+                            .from("client_journey_requests")
+                            .update({ status: select.value, reviewed_by: state.adminIdentity?.id, reviewed_at: new Date().toISOString() })
+                            .eq("id", select.dataset.journeyRequestStatus);
+                        if (result.error) {
+                            alert(result.error.message || "Unable to update journey request.");
+                            select.disabled = false;
+                            return;
+                        }
+                        renderAdminJourneyPanel(clientId);
+                    });
+                });
+            })
+            .catch(error => {
+                if (panel.isConnected) requestList.textContent = error?.message || "Journey requests could not be loaded.";
+            });
+    }
+
     const deskSelect = panel.querySelector('[name="desk_id"]');
     if (deskSelect && deskSelect.dataset.optionsLoaded !== "true") {
         for (const desk of state.adminIdentity?.desks || []) {
@@ -8060,28 +8588,45 @@ function renderAdminJourneyPanel(clientId) {
             internal_assignee_id: String(fields.get("internal_assignee_id") || "") || null,
             desk_id: String(fields.get("desk_id") || "") || null
         };
+        const requestId = String(fields.get("request_id") || "");
 
         if (submit) submit.disabled = true;
         if (message) message.textContent = "Saving Journey…";
 
         try {
-            const { data, error } = await lordblessSupabase
-                .from("client_journeys")
-                .insert(payload)
-                .select("id, client_id, enquiry_id, journey_type, title, destination, service, status, created_at, updated_at")
-                .single();
+            if (requestId) {
+                const { data: createdId, error } = await lordblessSupabase.rpc("assign_client_journey_request", {
+                    p_request_id: requestId,
+                    p_journey_type: payload.journey_type,
+                    p_title: payload.title,
+                    p_destination: payload.destination,
+                    p_service: payload.service,
+                    p_status: payload.status,
+                    p_internal_assignee_id: payload.internal_assignee_id,
+                    p_desk_id: payload.desk_id
+                });
+                if (error) throw error;
+                if (!createdId) throw new Error("The journey assignment was not confirmed.");
+            } else {
+                const { data, error } = await lordblessSupabase
+                    .from("client_journeys")
+                    .insert(payload)
+                    .select("id, client_id, enquiry_id, journey_type, title, destination, service, status, created_at, updated_at")
+                    .single();
 
-            if (error) throw error;
+                if (error) throw error;
+                const created = mapSupabaseJourney({
+                    ...data,
+                    internal_assignee_id: payload.internal_assignee_id,
+                    desk_id: payload.desk_id
+                });
+                state.journeys = [
+                    ...state.journeys.filter(item => item.id !== created.id),
+                    created
+                ];
+            }
 
-            const created = mapSupabaseJourney({
-                ...data,
-                internal_assignee_id: payload.internal_assignee_id,
-                desk_id: payload.desk_id
-            });
-            state.journeys = [
-                ...state.journeys.filter(item => item.id !== created.id),
-                created
-            ];
+            await loadAdminJourneys(clientId);
             form.reset();
             if (message) message.textContent = "Journey created.";
             renderAdminJourneyPanel(clientId);

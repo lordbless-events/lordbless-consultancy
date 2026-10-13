@@ -602,6 +602,9 @@ let clientPortalInitialised = false;
 let clientAuthLookupUserId = null;
 let clientAuthResolvedUserId = null;
 let clientJourneyLoadError = "";
+let clientDocumentLoadError = "";
+let clientJourneyRequests = [];
+let clientJourneyRequestError = "";
 let clientApplicationJourneyId = null;
 
 
@@ -707,6 +710,67 @@ async function loadAuthenticatedClientJourneys(clientId) {
         null;
     clientApplicationJourneyId = LORDBLESS_CLIENT_ACCOUNT.currentTransactionId;
 
+}
+
+
+async function loadAuthenticatedClientJourneyRequests(clientId) {
+    clientJourneyRequests = [];
+    clientJourneyRequestError = "";
+    const requestUserId = clientAuthLookupUserId;
+
+    try {
+        const { data, error } = await lordblessSupabase
+            .from("client_journey_requests")
+            .select("id, client_id, service, destination, details, status, created_at, updated_at")
+            .eq("client_id", clientId)
+            .order("created_at", { ascending: false });
+        if (error) throw error;
+        if (clientId !== LORDBLESS_CLIENT_ACCOUNT.id || requestUserId !== clientAuthLookupUserId) return;
+        clientJourneyRequests = (data || []).filter(item => item.client_id === clientId);
+    } catch (error) {
+        clientJourneyRequestError = error?.message || String(error);
+        console.error("LORDBLESS CLIENT JOURNEY REQUEST ERROR:", error);
+    }
+}
+
+
+async function loadAuthenticatedClientDocuments(clientId) {
+    LORDBLESS_CLIENT_ACCOUNT.documents = [];
+    clientDocumentLoadError = "";
+
+    if (
+        !window.LORDBLESS_DATA ||
+        typeof window.LORDBLESS_DATA.getClientDocuments !== "function"
+    ) {
+        clientDocumentLoadError = "The secure document data reader is unavailable.";
+        return;
+    }
+
+    const requestUserId = clientAuthLookupUserId;
+
+    try {
+        const rows = await window.LORDBLESS_DATA.getClientDocuments(clientId);
+        if (
+            clientId !== LORDBLESS_CLIENT_ACCOUNT.id ||
+            requestUserId !== clientAuthLookupUserId
+        ) return;
+
+        LORDBLESS_CLIENT_ACCOUNT.documents = (Array.isArray(rows) ? rows : [])
+            .filter(item => item?.client_id === clientId)
+            .map(item => ({
+                ...item,
+                id: item.id,
+                name: item.name || item.document_name || item.title || item.file_name || "Client document",
+                filename: item.filename || item.file_name || "",
+                type: item.type || item.document_type || "other",
+                status: item.status || item.review_status || "reviewing",
+                uploadedAt: item.uploadedAt || item.uploaded_at || "",
+                expiryDate: item.expiryDate || item.expiry_date || item.expires_at || ""
+            }));
+    } catch (error) {
+        clientDocumentLoadError = error?.message || String(error);
+        console.error("LORDBLESS CLIENT DOCUMENT LOAD ERROR:", error);
+    }
 }
 
 
@@ -828,7 +892,7 @@ async function loadClientOnboardingData(clientId) {
     clientConsultationNotifications = [];
     clientOnboardingDataError = "";
 
-    const [paymentResult, meetingResult, notificationsResult] = await Promise.all([
+    const [paymentResult, meetingResult, notificationsResult, appointmentNotificationsResult] = await Promise.all([
         lordblessSupabase
             .from("client_assessment_payment_status")
             .select("*")
@@ -842,6 +906,11 @@ async function loadClientOnboardingData(clientId) {
         lordblessSupabase
             .from("client_consultation_notifications")
             .select("id, client_id, meeting_id, revision, event_type, title, message, created_at, read_at")
+            .eq("client_id", clientId)
+            .order("created_at", { ascending: false }),
+        lordblessSupabase
+            .from("client_appointment_notifications")
+            .select("id, client_id, appointment_id, event_type, title, message, created_at, read_at")
             .eq("client_id", clientId)
             .order("created_at", { ascending: false })
     ]);
@@ -880,6 +949,27 @@ async function loadClientOnboardingData(clientId) {
                 read: Boolean(item.read_at),
                 databaseNotification: true
             }));
+    }
+
+    if (appointmentNotificationsResult.error) {
+        console.warn("LORDBLESS CLIENT APPOINTMENT MESSAGES UNAVAILABLE:", appointmentNotificationsResult.error.message);
+    } else {
+        clientConsultationNotifications = [
+            ...clientConsultationNotifications,
+            ...(appointmentNotificationsResult.data || [])
+                .filter(item => item.client_id === clientId)
+                .map(item => ({
+                    id: item.id,
+                    clientId: item.client_id,
+                    title: item.title,
+                    message: item.message,
+                    type: `appointment_${item.event_type}`,
+                    createdAt: item.created_at,
+                    read: Boolean(item.read_at),
+                    databaseNotification: true,
+                    appointmentNotification: true
+                }))
+        ];
     }
 }
 
@@ -1126,10 +1216,14 @@ async function handleClientPortalSession(session) {
         await loadClientOnboardingData(client.id);
         if (account.access_status === "active") {
             await loadAuthenticatedClientJourneys(client.id);
+            await loadAuthenticatedClientJourneyRequests(client.id);
+            await loadAuthenticatedClientDocuments(client.id);
         } else {
             LORDBLESS_CLIENT_ACCOUNT.transactions = [];
             LORDBLESS_CLIENT_ACCOUNT.currentTransactionId = null;
             clientApplicationJourneyId = null;
+            clientJourneyRequests = [];
+            LORDBLESS_CLIENT_ACCOUNT.documents = [];
         }
         clientAuthResolvedUserId = session.user.id;
 
@@ -1149,6 +1243,7 @@ async function handleClientPortalSession(session) {
             if (account.access_status === "active") {
                 renderTransactionHistory();
                 renderDocuments();
+                renderDashboard();
             } else {
                 LORDBLESS_CLIENT_ACCOUNT.transactions = [];
             }
@@ -1798,9 +1893,14 @@ function initialiseClientMessages() {
                 clientConsultationNotifications = clientConsultationNotifications.map(item =>
                     item.id === message.id ? { ...item, read: true } : item
                 );
-                void lordblessSupabase.rpc("mark_client_consultation_notification_read", {
-                    p_notification_id: message.id
-                }).then(({ error }) => {
+                const markRead = message.appointmentNotification
+                    ? lordblessSupabase.rpc("mark_client_appointment_notification_read", {
+                        p_notification_id: message.id
+                    })
+                    : lordblessSupabase.rpc("mark_client_consultation_notification_read", {
+                        p_notification_id: message.id
+                    });
+                void markRead.then(({ error }) => {
                     if (error) {
                         message.read = false;
                         clientConsultationNotifications = clientConsultationNotifications.map(item =>
@@ -1999,7 +2099,7 @@ function renderDashboard() {
 
     setText(
         "document-count",
-        documents.length
+        clientDocumentLoadError ? "—" : documents.length
     );
 
 
@@ -2142,25 +2242,25 @@ function renderDocumentSummary() {
 
     setText(
         "document-total-count",
-        documents.length
+        clientDocumentLoadError ? "—" : documents.length
     );
 
 
     setText(
         "document-approved-count",
-        approved
+        clientDocumentLoadError ? "—" : approved
     );
 
 
     setText(
         "document-review-count",
-        reviewing
+        clientDocumentLoadError ? "—" : reviewing
     );
 
 
     setText(
         "document-attention-count",
-        attention
+        clientDocumentLoadError ? "—" : attention
     );
 
 }
@@ -2362,7 +2462,7 @@ function renderTransactionHistory() {
         LORDBLESS_CLIENT_ACCOUNT.transactions || [];
 
 
-    if (!transactions.length) {
+    if (!transactions.length && !clientJourneyRequests.length) {
 
         container.innerHTML = `
 
@@ -2388,15 +2488,20 @@ function renderTransactionHistory() {
     }
 
 
-    container.innerHTML =
-        transactions
-            .map(
-                transaction =>
-                    createTransactionCard(
-                        transaction
-                    )
-            )
-            .join("");
+    const requestMarkup = clientJourneyRequestError
+        ? `<p role="alert">Journey requests could not be loaded. ${escapeHTML(clientJourneyRequestError)}</p>`
+        : clientJourneyRequests.length
+            ? `<section class="client-journey-requests"><h3>Journey Requests</h3>${clientJourneyRequests.map(request => `
+                <article class="transaction-card">
+                    <div class="transaction-main">
+                        <div class="transaction-top"><div><span class="transaction-reference">REQUEST ${escapeHTML(request.id.slice(0, 8))}</span><h3>${escapeHTML(request.service)}</h3></div><span class="transaction-status progress">${escapeHTML(request.status.replaceAll("_", " "))}</span></div>
+                        <div class="transaction-meta"><span>${escapeHTML(request.destination || "Destination to be discussed")}</span><span>Submitted ${escapeHTML(formatDate(request.created_at))}</span></div>
+                    </div>
+                </article>
+            `).join("")}</section>`
+            : "";
+
+    container.innerHTML = `${transactions.map(createTransactionCard).join("")}${requestMarkup}`;
 
 
     container
@@ -2779,6 +2884,13 @@ function renderDocuments() {
                 transaction,
                 documents
             );
+
+        if (clientDocumentLoadError) {
+            container.insertAdjacentHTML(
+                "afterbegin",
+                `<p class="client-onboarding-lock-message" role="alert">Document records could not be loaded, so counts are unavailable. ${escapeHTML(clientDocumentLoadError)}</p>`
+            );
+        }
 
         return;
 
@@ -3216,6 +3328,17 @@ function handleDocumentUpload(
 
 
     if (!file) {
+        return;
+    }
+
+    const isLocalDocumentDevelopment = window.location.protocol === "file:" ||
+        ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+    if (!isLocalDocumentDevelopment && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(LORDBLESS_CLIENT_ACCOUNT?.id || ""))) {
+        event.target.value = "";
+        showModal(
+            "Secure Upload Unavailable",
+            "The secure document storage destination is not configured. This file has not been sent or saved. Contact LORDBLESS CONSULTANCY for an approved submission method."
+        );
         return;
     }
 
@@ -3957,10 +4080,66 @@ function initialiseActions() {
 
 function startNewJourney() {
 
-    showModal(
-        "Start a New Journey",
-        "Your existing LORDBLESS Client ID remains with you. The new journey request workflow will be connected in a later stage."
-    );
+    if (!isClientFullPortalActivated() || clientAuthResolvedUserId !== clientAuthLookupUserId) {
+        showModal("Journey Request", "Full Client Portal access is required to submit a new journey request.");
+        return;
+    }
+
+    const modal = document.getElementById("portal-modal");
+    const card = modal?.querySelector(".modal-card");
+    const action = document.getElementById("modal-action");
+    if (!modal || !card || !action) return;
+
+    showModal("Start a New Journey", "Your existing Client ID remains with you. Your request will be reviewed by the LORDBLESS team before a journey is assigned.");
+    action.hidden = true;
+    card.querySelector("[data-journey-request-form]")?.remove();
+
+    const form = document.createElement("form");
+    form.dataset.journeyRequestForm = "true";
+    form.className = "client-journey-request-form";
+    form.innerHTML = `
+        <label>Service
+            <select name="service" required>
+                <option value="">Select a service</option>
+                ${Object.entries(LORDBLESS_SERVICE_LABELS).map(([key, label]) => `<option value="${escapeHTML(key)}">${escapeHTML(label)}</option>`).join("")}
+            </select>
+        </label>
+        <label>Preferred destination<input name="destination" type="text" maxlength="120" required></label>
+        <label>What would you like help with?<textarea name="client_message" rows="4" maxlength="3000" required></textarea></label>
+        <p data-journey-request-message role="status" aria-live="polite"></p>
+        <button class="primary-button" type="submit">Submit for Review</button>
+    `;
+    action.before(form);
+
+    form.addEventListener("submit", async event => {
+        event.preventDefault();
+        const submit = form.querySelector('[type="submit"]');
+        const message = form.querySelector("[data-journey-request-message]");
+        const values = new FormData(form);
+        const payload = {
+            client_id: LORDBLESS_CLIENT_ACCOUNT.id,
+            requested_by: clientAuthResolvedUserId,
+            service: String(values.get("service") || "").trim(),
+            destination: String(values.get("destination") || "").trim(),
+            details: { client_message: String(values.get("client_message") || "").trim() }
+        };
+
+        submit.disabled = true;
+        if (message) message.textContent = "Submitting your request…";
+        try {
+            const { error } = await lordblessSupabase
+                .from("client_journey_requests")
+                .insert(payload);
+            if (error) throw error;
+            await loadAuthenticatedClientJourneyRequests(LORDBLESS_CLIENT_ACCOUNT.id);
+            renderTransactionHistory();
+            if (message) message.textContent = "Your request has been submitted for review. No journey or payment has been created.";
+            form.reset();
+        } catch (error) {
+            if (message) message.textContent = error?.message || "Unable to submit your journey request.";
+            submit.disabled = false;
+        }
+    });
 
 }
 
@@ -4271,6 +4450,10 @@ function closePortalModal() {
     modal.classList.remove(
         "open"
     );
+
+    modal.querySelector("[data-journey-request-form]")?.remove();
+    const action = document.getElementById("modal-action");
+    if (action) action.hidden = false;
 
 
     modal.setAttribute(

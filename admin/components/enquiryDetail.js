@@ -208,8 +208,18 @@ function renderEnquiryDetail(
                     <div data-client-journey-list role="status" aria-live="polite">
                         Loading journeys…
                     </div>
+                    <h4>Client Journey Requests</h4>
+                    <div data-client-journey-request-list role="status" aria-live="polite">
+                        Loading journey requests…
+                    </div>
                     <form data-client-journey-form>
                         <h4>Create Journey</h4>
+                        <label>
+                            Request to assign (optional)
+                            <select name="request_id">
+                                <option value="">Create a staff-planned journey</option>
+                            </select>
+                        </label>
                         <label>
                             Journey Type
                             <input name="journey_type" type="text" required maxlength="120" placeholder="e.g. Nursing Career">
