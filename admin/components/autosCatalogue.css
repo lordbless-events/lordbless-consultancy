@@ -1,0 +1,41 @@
+.autos-admin .section-header { align-items: center; gap: 18px; }
+.autos-admin-layout { display: grid; grid-template-columns: minmax(220px,.7fr) minmax(0,1.7fr); gap: 22px; align-items: start; }
+.autos-admin-records, .autos-admin-editor { min-width: 0; padding: 20px; border: 1px solid rgba(7,26,51,.13); border-radius: 10px; background: #fff; }
+.autos-admin-records h3, .autos-admin-editor h3, .autos-admin-photos h3 { margin: 0 0 14px; color: #102744; }
+.autos-admin-record { margin-top: 8px; border: 1px solid rgba(7,26,51,.12); border-radius: 7px; }
+.autos-admin-record.is-selected { border-color: #c9a45c; box-shadow: 0 0 0 2px rgba(201,164,92,.12); }
+.autos-admin-record > button { width: 100%; padding: 12px; display: grid; gap: 4px; text-align: left; border: 0; border-radius: inherit; background: #fff; cursor: pointer; }
+.autos-admin-record strong { color: #805f22; }
+.autos-admin-record span { color: #17202a; }
+.autos-admin-record small { color: #667085; text-transform: capitalize; }
+.autos-admin-form-heading p, .autos-admin-photos > p, .autos-admin-photo-note { margin: -6px 0 18px; color: #667085; font-size: .88rem; }
+.autos-admin-form-heading .autos-admin-verification-meta { margin-top: -12px; color: #805f22; font-weight: 700; }
+.autos-admin-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.autos-admin-fields label { min-width: 0; display: grid; gap: 6px; color: #475467; font-size: .82rem; font-weight: 700; }
+.autos-admin-fields input, .autos-admin-fields select, .autos-admin-fields textarea { width: 100%; min-height: 40px; padding: 8px 10px; color: #17202a; border: 1px solid rgba(7,26,51,.2); border-radius: 5px; background: #fff; font: inherit; font-weight: 400; }
+.autos-admin-fields textarea { resize: vertical; }
+.autos-admin-fields .autos-admin-wide { grid-column: 1/-1; }
+.autos-admin-actions { margin-top: 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.autos-admin-actions a { color: #805f22; font-size: .88rem; font-weight: 700; }
+.autos-admin-actions a[aria-disabled="true"] { pointer-events: none; opacity: .5; }
+.autos-admin .secondary-button, .autos-admin-photo button { min-height: 35px; padding: 6px 9px; color: #102744; border: 1px solid rgba(7,26,51,.2); border-radius: 5px; background: #fff; cursor: pointer; }
+.autos-admin button:disabled { cursor: not-allowed; opacity: .55; }
+.autos-admin-alert { margin: 12px 0; padding: 11px 14px; color: #174c2e; border: 1px solid #b6d8bf; border-radius: 6px; background: #f0f9f2; }
+.autos-admin-alert.is-error { color: #8b2929; border-color: #edc3c3; background: #fff5f5; }
+.autos-admin-photos { margin-top: 24px; padding-top: 20px; border-top: 1px solid rgba(7,26,51,.12); }
+.autos-admin-photos a { color: #805f22; font-weight: 700; }
+.autos-admin-upload { display: inline-grid; gap: 8px; margin: 2px 0 18px; padding: 11px 14px; color: #102744; border: 1px dashed #b28a42; border-radius: 6px; font-size: .88rem; font-weight: 700; cursor: pointer; }
+.autos-admin-upload input { max-width: 100%; font-weight: 400; }
+.autos-admin-photo-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
+.autos-admin-photo { min-width: 0; padding: 9px; border: 1px solid rgba(7,26,51,.12); border-radius: 6px; }
+.autos-admin-photo img, .autos-admin-preview img { width: 100%; height: 145px; object-fit: cover; border-radius: 4px; background: #f1f1ed; }
+.autos-admin-photo > p { margin: 7px 0; color: #667085; font-size: .76rem; }
+.autos-admin-photo > div:last-child { display: flex; flex-wrap: wrap; gap: 5px; }
+.autos-admin-photo button { min-height: 30px; padding: 4px 6px; font-size: .72rem; }
+.autos-photo-unavailable { min-height: 145px; display: grid; place-items: center; color: #667085; background: #f1f1ed; }
+.autos-admin-preview { margin-top: 20px; padding: 16px; border: 1px solid rgba(7,26,51,.15); border-radius: 7px; background: #f7f5f0; }
+.autos-admin-preview[hidden] { display: none; }
+.autos-admin-preview h4 { margin: 0 0 8px; color: #102744; }
+.autos-admin-preview img { max-width: 340px; margin-top: 10px; }
+@media (max-width: 900px) { .autos-admin-layout { grid-template-columns: 1fr; } .autos-admin-records { max-height: 420px; overflow: auto; } }
+@media (max-width: 600px) { .autos-admin-fields, .autos-admin-photo-grid { grid-template-columns: 1fr; } .autos-admin-fields .autos-admin-wide { grid-column: auto; } }

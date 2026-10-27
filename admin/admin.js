@@ -435,6 +435,7 @@ const ADMIN_VIEW_PERMISSIONS = {
     clients: "clients.read",
     followups: "followups.read",
     documents: "documents.read",
+    autos: "autos.manage",
     finance: "finance.read",
     assessments: "applications.read",
     stories: "stories.read",
@@ -2760,6 +2761,9 @@ function renderView(
                 documents:
             "Documents",
 
+        autos:
+            "LORDBLESS AUTOS Catalogue",
+
         finance:
             "Finance",
 
@@ -2828,6 +2832,16 @@ function renderView(
         case "documents":
 
             renderAdminDocuments();
+
+            break;
+
+        case "autos":
+
+            if (window.LORDBLESS_AUTOS_ADMIN?.render) {
+                void window.LORDBLESS_AUTOS_ADMIN.render(appContent);
+            } else {
+                renderPlaceholder("LORDBLESS AUTOS Catalogue", "The catalogue manager could not be loaded.");
+            }
 
             break;
 

@@ -65,6 +65,44 @@
             </div>
         </section>
 
+        <section class="autos-catalogue-section" id="autos-catalogue" aria-labelledby="autos-catalogue-title">
+            <div class="container">
+                <div class="autos-section-heading">
+                    <p class="autos-eyebrow">LORDBLESS AUTOS catalogue</p>
+                    <h2 id="autos-catalogue-title">Vehicles confirmed for enquiry.</h2>
+                    <p>Browse vehicles that our team has verified and published. Ask for a price to request current details and a quotation.</p>
+                </div>
+
+                <form id="autos-catalogue-filters" class="autos-catalogue-filters" role="search">
+                    <label>
+                        <span>Search</span>
+                        <input id="autos-catalogue-search" type="search" placeholder="Make, model or LORDBLESS reference">
+                    </label>
+                    <label>
+                        <span>Make</span>
+                        <select id="autos-filter-make"><option value="">All makes</option></select>
+                    </label>
+                    <label>
+                        <span>Year</span>
+                        <select id="autos-filter-year"><option value="">All years</option></select>
+                    </label>
+                    <label>
+                        <span>Body type</span>
+                        <select id="autos-filter-body"><option value="">All body types</option></select>
+                    </label>
+                    <label>
+                        <span>Fuel type</span>
+                        <select id="autos-filter-fuel"><option value="">All fuel types</option></select>
+                    </label>
+                    <button class="autos-filter-reset" type="reset">Clear filters</button>
+                </form>
+
+                <p id="autos-catalogue-status" class="autos-catalogue-status" role="status" aria-live="polite">Loading verified vehicles…</p>
+                <div id="autos-vehicle-grid" class="autos-vehicle-grid"></div>
+                <section id="autos-vehicle-detail" class="autos-vehicle-detail" aria-live="polite" hidden></section>
+            </div>
+        </section>
+
         <section class="autos-section" id="how-it-works">
             <div class="container">
                 <div class="autos-section-heading">
@@ -73,7 +111,7 @@
                     <p>Start with a specific vehicle or describe what would suit you. We will review the request and let you know what information is needed to check it and prepare a quotation.</p>
                 </div>
                 <div class="autos-steps">
-                    <article class="autos-step"><span>01</span><h3>Share your vehicle request</h3><p>Tell us the make, model, preferred year or a supplier listing reference if you have one. You can also describe the type of vehicle you need.</p></article>
+                    <article class="autos-step"><span>01</span><h3>Share your vehicle request</h3><p>Tell us the make, model, preferred year or LORDBLESS vehicle reference if you have one. You can also describe the type of vehicle you need.</p></article>
                     <article class="autos-step"><span>02</span><h3>We review the details</h3><p>We check the specific request and confirm which vehicle details, condition information and costs can be established.</p></article>
                     <article class="autos-step"><span>03</span><h3>Receive a quotation</h3><p>After relevant details and costs are confirmed, our team can prepare a quotation for your consideration.</p></article>
                 </div>
