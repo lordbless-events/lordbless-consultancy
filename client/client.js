@@ -604,8 +604,6 @@ let clientAuthResolvedUserId = null;
 let clientJourneyLoadError = "";
 let clientJourneyMilestoneError = "";
 let clientDocumentLoadError = "";
-let clientJourneyRequests = [];
-let clientJourneyRequestError = "";
 let clientApplicationJourneyId = null;
 
 
@@ -742,29 +740,6 @@ async function loadAuthenticatedClientJourneys(clientId) {
         null;
     clientApplicationJourneyId = LORDBLESS_CLIENT_ACCOUNT.currentTransactionId;
 
-}
-
-
-async function loadAuthenticatedClientJourneyRequests(clientId) {
-    clientJourneyRequests = [];
-    clientJourneyRequestError = "";
-    const requestUserId = clientAuthLookupUserId;
-
-    try {
-        const { data, error } = await lordblessSupabase
-            .from("client_journey_requests")
-            .select("id, client_id, service, destination, details, status, assigned_journey_id, created_at, updated_at")
-            .eq("client_id", clientId)
-            .order("created_at", { ascending: false });
-        if (error) throw error;
-        if (clientId !== LORDBLESS_CLIENT_ACCOUNT.id || requestUserId !== clientAuthLookupUserId) return;
-        clientJourneyRequests = (data || []).filter(item =>
-            item.client_id === clientId && !item.assigned_journey_id && item.status !== "assigned"
-        );
-    } catch (error) {
-        clientJourneyRequestError = error?.message || String(error);
-        console.error("LORDBLESS CLIENT JOURNEY REQUEST ERROR:", error);
-    }
 }
 
 
@@ -1250,13 +1225,11 @@ async function handleClientPortalSession(session) {
         await loadClientOnboardingData(client.id);
         if (account.access_status === "active") {
             await loadAuthenticatedClientJourneys(client.id);
-            await loadAuthenticatedClientJourneyRequests(client.id);
             await loadAuthenticatedClientDocuments(client.id);
         } else {
             LORDBLESS_CLIENT_ACCOUNT.transactions = [];
             LORDBLESS_CLIENT_ACCOUNT.currentTransactionId = null;
             clientApplicationJourneyId = null;
-            clientJourneyRequests = [];
             LORDBLESS_CLIENT_ACCOUNT.documents = [];
         }
         clientAuthResolvedUserId = session.user.id;
@@ -2496,7 +2469,7 @@ function renderTransactionHistory() {
         LORDBLESS_CLIENT_ACCOUNT.transactions || [];
 
 
-    if (!transactions.length && !clientJourneyRequests.length) {
+    if (!transactions.length) {
 
         container.innerHTML = `
 
@@ -2522,22 +2495,7 @@ function renderTransactionHistory() {
     }
 
 
-    const requestMarkup = clientJourneyRequestError
-        ? `<p role="alert">Journey requests could not be loaded. ${escapeHTML(clientJourneyRequestError)}</p>`
-        : clientJourneyRequests.length
-        ? `<section class="client-journey-requests"><h3>Journey Requests</h3>${clientJourneyRequests.map(request => `
-                <article class="transaction-card">
-                    <div class="transaction-main">
-                        <div class="transaction-top"><div><span class="transaction-reference">REQUEST ${escapeHTML(request.id.slice(0, 8))}</span><h3>${escapeHTML(request.service)}</h3></div><span class="transaction-status progress">${escapeHTML(request.status.replaceAll("_", " "))}</span></div>
-                        <div class="transaction-meta"><span>${escapeHTML(request.destination || "Destination to be discussed")}</span><span>Submitted ${escapeHTML(formatDate(request.created_at))}</span></div>
-                        ${request.details?.client_message ? `<p>${escapeHTML(request.details.client_message)}</p>` : ""}
-                        ${request.details?.review_reason ? `<p>Team update: ${escapeHTML(request.details.review_reason)}</p>` : ""}
-                    </div>
-                </article>
-            `).join("")}</section>`
-            : "";
-
-    container.innerHTML = `${transactions.map(createTransactionCard).join("")}${requestMarkup}`;
+    container.innerHTML = transactions.map(createTransactionCard).join("");
 
 
     container
@@ -4024,20 +3982,6 @@ function initialiseActions() {
 
                         if (
                             action ===
-                            "new-journey"
-                        ) {
-
-                            event.preventDefault();
-
-                            startNewJourney();
-
-                            return;
-
-                        }
-
-
-                        if (
-                            action ===
                             "view-current-journey"
                         ) {
 
@@ -4119,76 +4063,6 @@ function initialiseActions() {
 
             }
         );
-
-}
-
-
-/* ============================================================
-   NEW JOURNEY
-   ============================================================ */
-
-function startNewJourney() {
-
-    if (!isClientFullPortalActivated() || clientAuthResolvedUserId !== clientAuthLookupUserId) {
-        showModal("Journey Request", "Full Client Portal access is required to submit a new journey request.");
-        return;
-    }
-
-    const modal = document.getElementById("portal-modal");
-    const card = modal?.querySelector(".modal-card");
-    const action = document.getElementById("modal-action");
-    if (!modal || !card || !action) return;
-
-    showModal("Start a New Journey", "Your existing Client ID remains with you. Your request will be reviewed by the LORDBLESS team before a journey is assigned.");
-    action.hidden = true;
-    card.querySelector("[data-journey-request-form]")?.remove();
-
-    const form = document.createElement("form");
-    form.dataset.journeyRequestForm = "true";
-    form.className = "client-journey-request-form";
-    form.innerHTML = `
-        <label>Service
-            <select name="service" required>
-                <option value="">Select a service</option>
-                ${Object.entries(LORDBLESS_SERVICE_LABELS).map(([key, label]) => `<option value="${escapeHTML(key)}">${escapeHTML(label)}</option>`).join("")}
-            </select>
-        </label>
-        <label>Preferred destination<input name="destination" type="text" maxlength="120" required></label>
-        <label>What would you like help with?<textarea name="client_message" rows="4" maxlength="3000" required></textarea></label>
-        <p data-journey-request-message role="status" aria-live="polite"></p>
-        <button class="primary-button" type="submit">Submit for Review</button>
-    `;
-    action.before(form);
-
-    form.addEventListener("submit", async event => {
-        event.preventDefault();
-        const submit = form.querySelector('[type="submit"]');
-        const message = form.querySelector("[data-journey-request-message]");
-        const values = new FormData(form);
-        const payload = {
-            client_id: LORDBLESS_CLIENT_ACCOUNT.id,
-            requested_by: clientAuthResolvedUserId,
-            service: String(values.get("service") || "").trim(),
-            destination: String(values.get("destination") || "").trim(),
-            details: { client_message: String(values.get("client_message") || "").trim() }
-        };
-
-        submit.disabled = true;
-        if (message) message.textContent = "Submitting your request…";
-        try {
-            const { error } = await lordblessSupabase
-                .from("client_journey_requests")
-                .insert(payload);
-            if (error) throw error;
-            await loadAuthenticatedClientJourneyRequests(LORDBLESS_CLIENT_ACCOUNT.id);
-            renderTransactionHistory();
-            if (message) message.textContent = "Your request has been submitted for review. No journey or payment has been created.";
-            form.reset();
-        } catch (error) {
-            if (message) message.textContent = error?.message || "Unable to submit your journey request.";
-            submit.disabled = false;
-        }
-    });
 
 }
 
@@ -4500,7 +4374,6 @@ function closePortalModal() {
         "open"
     );
 
-    modal.querySelector("[data-journey-request-form]")?.remove();
     const action = document.getElementById("modal-action");
     if (action) action.hidden = false;
 

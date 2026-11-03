@@ -2814,7 +2814,10 @@ function renderView(
         case "clients":
 
             renderAdminClients();
-            void loadAdminPortalClients().then(() => {
+            void Promise.all([
+                loadAdminPortalClients(),
+                loadAdminJourneys()
+            ]).then(() => {
                 if (state.currentView === "clients") renderAdminClients();
             });
 
@@ -3354,15 +3357,14 @@ function getAdminClientJourneys(
     clientId
 ) {
 
-    if (
-        typeof LORDBLESS_DOCUMENT_JOURNEYS === "undefined"
-    ) {
-        return [];
-    }
+    const mockJourneys = typeof LORDBLESS_DOCUMENT_JOURNEYS !== "undefined" &&
+        Array.isArray(LORDBLESS_DOCUMENT_JOURNEYS)
+            ? LORDBLESS_DOCUMENT_JOURNEYS
+            : [];
 
     const journeys = [
         ...state.journeys,
-        ...LORDBLESS_DOCUMENT_JOURNEYS
+        ...mockJourneys
     ].filter((journey, index, collection) =>
         collection.findIndex(item => item.id === journey.id) === index
     );
@@ -3845,10 +3847,8 @@ function renderAdminClientRow(
     client
 ) {
 
-    const journey =
-        getAdminClientJourney(
-            client.id
-        );
+    const journeys = getAdminClientJourneys(client.id);
+    const journey = journeys[0] || null;
 
     const documents =
         getAdminClientDocuments(
@@ -3921,7 +3921,7 @@ function renderAdminClientRow(
                 <span>
                     ${
                         journey
-                            ? escapeHTML(journey.title)
+                            ? escapeHTML(`${journey.title} / ${String(journey.status || "planning").replaceAll("_", " ")}${journeys.length > 1 ? ` (+${journeys.length - 1} more)` : ""}`)
                             : "—"
                     }
                 </span>
@@ -4066,18 +4066,6 @@ function openAdminClient(
     }
 
 
-    const journeys =
-        getAdminClientJourneys(
-            client.id
-        );
-
-
-    const documents =
-        getAdminClientDocuments(
-            client.id
-        );
-
-
     const modal =
         document.getElementById(
             "enquiry-modal"
@@ -4095,286 +4083,87 @@ function openAdminClient(
     }
 
 
-    const accessLabel =
-        currentAdminHasAllDeskAccess()
-            ? "All Desks"
-            : (
-                typeof getDeskLabel === "function"
-                    ? getDeskLabel(
-                        getCurrentAdminDesk()
-                    )
-                    : getCurrentAdminDesk() ||
-                      "Assigned Desk"
-            );
-
-
-    /*
-     * Use the dedicated client-details component when it is available.
-     * The fallback keeps the current Admin Portal functional even when
-     * that optional component has not yet been added to index.html.
-     */
-
-    if (
-        typeof window.LORDBLESS_CLIENT_DETAILS !== "undefined" &&
-        typeof window.LORDBLESS_CLIENT_DETAILS.render === "function"
-    ) {
-
-        window.LORDBLESS_CLIENT_DETAILS.render(
-            modalBody,
-            {
-                client,
-                journeys,
-                documents,
-                accessLabel,
-                initialTab: "documents",
-
-                onOpenDocuments: targetClientId => {
-
-                    modal.classList.add(
-                        "hidden"
-                    );
-
-                    filterAdminDocumentsToClient(
-                        targetClientId
-                    );
-
-                }
-            }
-        );
-
-    } else {
-
-        renderAdminClientDocumentDetails(
-            modalBody,
-            client,
-            journeys,
-            documents,
-            accessLabel
-        );
-
-    }
-
-
-    modal.classList.remove(
-        "hidden"
+    const linkedEnquiry = state.enquiries.find(enquiry =>
+        getEnquiryClientId(enquiry) === String(client.id)
+    );
+    const enquiry = linkedEnquiry || {
+        id: null,
+        client_id: String(client.id),
+        reference: getAdminClientDisplayId(client),
+        full_name: client.fullName || client.name || "Client",
+        email: client.email || "",
+        whatsapp: client.whatsapp || "",
+        current_country: client.currentCountry || client.current_country || "",
+        nationality: client.nationality || "",
+        client
+    };
+    const linkedClient = enquiry.client || {};
+    enquiry.client = {
+        ...linkedClient,
+        ...client,
+        id: client.id,
+        fullName: client.fullName || client.full_name || client.name || linkedClient.fullName || linkedClient.full_name || "Client",
+        email: client.email || linkedClient.email || "",
+        whatsapp: client.whatsapp || linkedClient.whatsapp || client.phone || linkedClient.phone || "",
+        currentCountry: client.currentCountry || client.current_country || linkedClient.currentCountry || linkedClient.current_country || "",
+        nationality: client.nationality || linkedClient.nationality || ""
+    };
+    const activeReference = String(enquiry.reference || enquiry.id || client.id);
+    const canCreate = Boolean(
+        isSupabaseClientId(client.id) &&
+        state.authUser &&
+        getCurrentUser() &&
+        hasPermission(getCurrentUser(), "clients.portal_access")
     );
 
-}
+    enquiryModal.dataset.clientDetailsReference = activeReference;
+    modal.classList.remove("hidden");
+    renderAdminEnquiryClientView(enquiry, {
+        entryPoint: "clients",
+        assignedJourneys: getAdminClientJourneys(client.id),
+        loading: Boolean(isSupabaseClientId(client.id)),
+        account: null,
+        canCreate,
+        canManageAccess: canCreate,
+        message: ""
+    });
 
+    if (!isSupabaseClientId(client.id)) return;
 
-/* =========================================================
-   CLIENT DOCUMENT DETAILS FALLBACK
+    Promise.all([
+        loadClientPortalAccount(client.id),
+        loadAdminAssessmentState(client.id),
+        loadAdminJourneys(client.id),
+        loadAdminJourneyAssignees()
+    ]).then(([account, assessment]) => {
+        if (
+            modal.classList.contains("hidden") ||
+            enquiryModal.dataset.clientDetailsReference !== activeReference
+        ) return;
 
-   Keeps the Admin Documents workflow usable without requiring
-   another file to be loaded. The dedicated clientDetails component
-   can replace this automatically when available.
-========================================================= */
-
-function renderAdminClientDocumentDetails(
-    container,
-    client,
-    journeys,
-    documents,
-    accessLabel
-) {
-
-    const clientRequests =
-        LORDBLESS_ADMIN_DOCUMENT_DATA.requests
-            .filter(
-                request =>
-                    request.clientId === client.id &&
-                    canCurrentAdminAccessDocumentRequest(request)
-            );
-
-    const reviewDocuments =
-        documents.filter(
-            document =>
-                document.status === "reviewing"
-        );
-
-    const approvedDocuments =
-        documents.filter(
-            document =>
-                document.status === "approved"
-        );
-
-    const attentionDocuments =
-        documents.filter(
-            getAdminDocumentAttention
-        );
-
-    container.innerHTML = `
-
-        <div class="lbc-client-document-details">
-
-            <div class="lbc-client-document-header">
-
-                <div>
-                    <p class="portal-eyebrow">CLIENT DOCUMENTS</p>
-                    <h2>${escapeHTML(client.name || client.fullName || "Client")}</h2>
-                    <p>${escapeHTML(client.id)} · ${escapeHTML(accessLabel)}</p>
-                </div>
-
-                <button
-                    type="button"
-                    class="lbc-document-btn lbc-document-btn-secondary"
-                    data-client-details-close="true"
-                >
-                    Close
-                </button>
-
-            </div>
-
-            <div class="lbc-client-document-meta">
-
-                <span>Email <strong>${escapeHTML(client.email || "—")}</strong></span>
-                <span>Journeys <strong>${journeys.length}</strong></span>
-                <span>Documents <strong>${documents.length}</strong></span>
-
-            </div>
-
-            <section class="lbc-client-document-section">
-                <div class="lbc-client-document-section-header">
-                    <div>
-                        <h3>Journeys</h3>
-                        <p>Documents are retained at client level and linked to the relevant journey when applicable.</p>
-                    </div>
-                </div>
-
-                <div class="lbc-client-document-journeys">
-                    ${
-                        journeys.length
-                            ? journeys.map(journey => `
-                                <article class="lbc-client-document-journey">
-                                    <strong>${escapeHTML(journey.title || "Journey")}</strong>
-                                    <span>${escapeHTML(journey.id)}</span>
-                                    <span>${escapeHTML(journey.destination || "—")}</span>
-                                    <span>${escapeHTML(getJourneyDeskId(journey))}</span>
-                                </article>
-                            `).join("")
-                            : `<div class="lbc-document-empty"><h4>No journeys</h4><p>No accessible journey is currently assigned to this client.</p></div>`
-                    }
-                </div>
-            </section>
-
-            ${renderAdminClientDocumentSection(
-                "Pending Review",
-                reviewDocuments,
-                "These documents were uploaded and are waiting for administrative review."
-            )}
-
-            ${renderAdminClientDocumentSection(
-                "Approved / Reusable",
-                approvedDocuments,
-                "Approved documents remain available in the client's permanent library."
-            )}
-
-            ${renderAdminClientDocumentSection(
-                "Attention",
-                attentionDocuments,
-                "These documents require attention because of rejection or expiry timing."
-            )}
-
-            <section class="lbc-client-document-section">
-                <div class="lbc-client-document-section-header">
-                    <div>
-                        <h3>Document Requests</h3>
-                        <p>Requests created by Admin for this client's journeys.</p>
-                    </div>
-                </div>
-
-                ${
-                    clientRequests.length
-                        ? `<div class="lbc-client-document-requests">${clientRequests.map(renderAdminClientRequestSummary).join("")}</div>`
-                        : `<div class="lbc-document-empty"><h4>No outstanding requests</h4><p>No document request is currently recorded for this client.</p></div>`
-                }
-            </section>
-
-        </div>
-
-    `;
-
-    container
-        .querySelector("[data-client-details-close]")
-        ?.addEventListener(
-            "click",
-            closeEnquiryModal
-        );
-
-    container
-        .querySelectorAll("[data-admin-document-review]")
-        .forEach(button => {
-            button.addEventListener(
-                "click",
-                () => {
-                    openAdminDocumentReview(
-                        button.dataset.adminDocumentReview
-                    );
-                }
-            );
+        renderAdminEnquiryClientView(enquiry, {
+            ...assessment,
+            entryPoint: "clients",
+            assignedJourneys: getAdminClientJourneys(client.id),
+            account,
+            canCreate: canCreate && !account,
+            canManageAccess: canCreate,
+            canResend: Boolean(canCreate && account?.access_status === "invited"),
+            message: ""
         });
-
-}
-
-
-function renderAdminClientDocumentSection(
-    title,
-    documents,
-    description
-) {
-
-    return `
-
-        <section class="lbc-client-document-section">
-
-            <div class="lbc-client-document-section-header">
-                <div>
-                    <h3>${escapeHTML(title)}</h3>
-                    <p>${escapeHTML(description)}</p>
-                </div>
-                <span>${documents.length}</span>
-            </div>
-
-            ${
-                documents.length
-                    ? `<div class="lbc-client-document-list">${documents.map(document => `
-                        <article class="lbc-client-document-item">
-                            <div>
-                                <strong>${escapeHTML(document.name)}</strong>
-                                <span>${escapeHTML(document.type || "Document")} · v${escapeHTML(document.version || 1)}</span>
-                                ${document.transactionTitle ? `<span>${escapeHTML(document.transactionTitle)}</span>` : ""}
-                            </div>
-                            <div class="lbc-client-document-item-side">
-                                <span class="lbc-document-status status-${escapeHTML(document.status)}">${escapeHTML(formatAdminDocumentStatus(document.status))}</span>
-                                ${document.expiryDate ? `<span>${escapeHTML(getAdminDocumentValidityStatus(document).label)}</span>` : ""}
-                                <button type="button" class="lbc-document-btn lbc-document-btn-secondary" data-admin-document-review="${escapeHTML(document.id)}">Review</button>
-                            </div>
-                        </article>
-                    `).join("")}</div>`
-                    : `<div class="lbc-document-empty"><h4>None</h4><p>No documents are currently in this section.</p></div>`
-            }
-
-        </section>
-
-    `;
-
-}
-
-
-function renderAdminClientRequestSummary(
-    request
-) {
-
-    return `
-        <article class="lbc-client-document-request">
-            <div>
-                <strong>${escapeHTML((request.documentNames || []).join(", "))}</strong>
-                <span>${escapeHTML(request.transactionTitle || "Journey not specified")}</span>
-                <span>Deadline: ${escapeHTML(formatDate(request.deadline))}</span>
-            </div>
-            <span class="lbc-document-status status-requested">${escapeHTML(request.status || "requested")}</span>
-        </article>
-    `;
+    }).catch(error => {
+        if (
+            modal.classList.contains("hidden") ||
+            enquiryModal.dataset.clientDetailsReference !== activeReference
+        ) return;
+        renderAdminEnquiryClientView(enquiry, {
+            entryPoint: "clients",
+            assignedJourneys: getAdminClientJourneys(client.id),
+            error: error?.message || "Unable to load Client Portal access status.",
+            canCreate: false,
+            account: null
+        });
+    });
 
 }
 
@@ -7928,34 +7717,64 @@ function renderAdminEnquiryClientView(enquiry, portalState) {
         return;
     }
 
+    const clientId = getEnquiryClientId(enquiry);
+    const hasPersistentClient = isSupabaseClientId(clientId);
+
+    const clientDocuments = portalState?.clientDocuments || [];
+    const documentAttentionCount = clientDocuments.filter(document => {
+        const status = String(document.status || document.review_status || "uploaded").toLowerCase();
+        if (status === "rejected") return true;
+        if (status !== "approved") return false;
+        const expiryDate = document.expiry_date || document.expires_at || document.expiryDate || "";
+        return Boolean(expiryDate) && getAdminDocumentValidityStatus({ expiryDate }).value !== "normal";
+    }).length;
+
     window.LORDBLESS_CLIENT_DETAILS.renderEnquiry(
         modalContent,
         {
             enquiry,
             client: enquiry.client || {},
             clientId: getEnquiryClientId(enquiry),
+            entryPoint: portalState?.entryPoint || "enquiries",
+            assignedJourneys: portalState?.assignedJourneys || getAdminClientJourneys(clientId),
+            canReadJourneys: hasPermission(getCurrentUser(), "journeys.read"),
+            canWriteJourneys: hasPermission(getCurrentUser(), "journeys.write"),
             portalState: portalState || {},
-            canReadAssessment: hasPermission(getCurrentUser(), "finance.read"),
-            canCreateAssessment: hasPermission(getCurrentUser(), "finance.requests"),
-            canScheduleConsultation: hasPermission(getCurrentUser(), "consultations.manage"),
+            canReadAssessment: hasPersistentClient && hasPermission(getCurrentUser(), "finance.read"),
+            canCreateAssessment: hasPersistentClient && hasPermission(getCurrentUser(), "finance.requests"),
+            canScheduleConsultation: hasPersistentClient && hasPermission(getCurrentUser(), "consultations.manage"),
             assessmentPayment: portalState?.assessmentPayment || null,
             consultationMeeting: portalState?.consultationMeeting || null,
             assessmentError: portalState?.assessmentError || "",
             appointments: portalState?.appointments || [],
             appointmentError: portalState?.appointmentError || "",
-            canManageAppointments: hasPermission(getCurrentUser(), "consultations.manage"),
-            clientDocuments: portalState?.clientDocuments || [],
+            canManageAppointments: hasPersistentClient && hasPermission(getCurrentUser(), "consultations.manage"),
+            clientDocuments,
+            documentAttentionCount,
             documentRequests: portalState?.documentRequests || [],
             documentError: portalState?.documentError || "",
             canReadDocuments: Boolean(portalState?.canReadDocuments),
             clientFollowups: portalState?.clientFollowups || [],
             followupError: portalState?.followupError || "",
-            canReadFollowups: Boolean(portalState?.canReadFollowups),
-            canWriteFollowups: Boolean(portalState?.canWriteFollowups)
+            canReadFollowups: hasPersistentClient && Boolean(portalState?.canReadFollowups),
+            canWriteFollowups: hasPersistentClient && Boolean(portalState?.canWriteFollowups)
         }
     );
 
     bindAdminAssessmentActions(enquiry, portalState || {});
+
+    if (isSupabaseClientId(clientId) && hasPermission(getCurrentUser(), "journeys.write")) {
+        renderAdminJourneyPanel(clientId);
+    }
+
+    modalContent.querySelector("[data-client-open-documents]")?.addEventListener("click", event => {
+        const button = event.currentTarget;
+        const targetClientId = button.dataset.clientId;
+        if (!targetClientId) return;
+        enquiryModal.classList.add("hidden");
+        LORDBLESS_ADMIN_DOCUMENT_STATE.clientFilter = targetClientId;
+        renderView("documents");
+    });
 
     const createButton = modalContent.querySelector(
         '[data-client-portal-action="create"]'
@@ -8482,7 +8301,9 @@ async function openAdminEnquiryClient(reference) {
     try {
         const [account, assessment] = await Promise.all([
             loadClientPortalAccount(clientId),
-            loadAdminAssessmentState(clientId)
+            loadAdminAssessmentState(clientId),
+            loadAdminJourneys(clientId),
+            loadAdminJourneyAssignees()
         ]);
         if (
             enquiryModal.dataset.clientDetailsReference !== String(reference || "") ||
@@ -8520,6 +8341,8 @@ function renderAdminJourneyPanel(clientId) {
 
     if (!panel) return;
 
+    const canWriteJourneys = hasPermission(getCurrentUser(), "journeys.write");
+
     const list = panel.querySelector("[data-client-journey-list]");
     const journeys = state.journeys.filter(item => item.clientId === clientId);
 
@@ -8540,6 +8363,8 @@ function renderAdminJourneyPanel(clientId) {
                     ${journey.desk
                         ? `<span>Internal team: ${escapeHTML(state.adminIdentity?.desks?.find(item => item.code === journey.desk)?.name || journey.desk)}</span>`
                         : ""}
+                    <span>Assigned: ${escapeHTML(formatDate(journey.createdAt))}</span>
+                    <span>Progress: ${journey.milestones?.length ? Math.round(journey.milestones.filter(item => item.status === "completed").length / journey.milestones.length * 100) : 0}%</span>
                     <strong>Milestones</strong>
                     ${journey.milestones?.length ? journey.milestones.map(milestone => `
                         <label class="client-journey-milestone-row">

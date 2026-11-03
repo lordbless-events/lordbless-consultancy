@@ -4269,6 +4269,141 @@ body {
     cursor: not-allowed;
 }
 
+/* Client Details shares the existing enquiry modal and keeps its own layout scope. */
+.modal:has(.client-enquiry-view) {
+    padding: 12px;
+    overflow: hidden;
+}
+
+.modal:has(.client-enquiry-view) .modal-panel {
+    width: min(1040px, calc(100vw - 24px));
+    max-width: 100%;
+    max-height: min(92dvh, calc(100vh - 24px));
+    padding: clamp(18px, 3vw, 30px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    box-sizing: border-box;
+}
+
+.client-enquiry-view,
+.client-enquiry-view * {
+    min-width: 0;
+    box-sizing: border-box;
+}
+
+.client-enquiry-view {
+    width: 100%;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+}
+
+.client-enquiry-view .detail-page-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 0 42px 18px 0;
+}
+
+.client-enquiry-view .detail-page-header > div,
+.client-enquiry-view .detail-card,
+.client-enquiry-view .client-detail-accordion-content {
+    min-width: 0;
+}
+
+.client-enquiry-view .detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.client-enquiry-view .detail-row {
+    flex-wrap: wrap;
+}
+
+.client-enquiry-view .detail-row strong {
+    max-width: 100%;
+    text-align: right;
+    overflow-wrap: anywhere;
+}
+
+.client-enquiry-view form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    max-width: 100%;
+}
+
+.client-enquiry-view form label,
+.client-enquiry-view form button,
+.client-enquiry-view form [role="status"] {
+    min-width: 0;
+}
+
+.client-enquiry-view form input,
+.client-enquiry-view form select,
+.client-enquiry-view form textarea {
+    width: 100%;
+    max-width: 100%;
+}
+
+.client-enquiry-view form textarea {
+    resize: vertical;
+}
+
+.client-document-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
+    gap: 10px;
+    margin: 0 0 14px;
+}
+
+.client-document-summary-grid > div {
+    display: grid;
+    gap: 6px;
+    padding: 12px;
+    border: 1px solid var(--lb-border);
+    border-radius: 9px;
+    background: #fbfcfe;
+}
+
+.client-document-summary-grid span {
+    color: var(--lb-muted);
+    font-size: 12px;
+}
+
+.client-document-summary-grid strong {
+    color: var(--lb-text);
+    font-size: 20px;
+}
+
+@media (max-width: 700px) {
+    .modal:has(.client-enquiry-view) {
+        place-items: center;
+        padding: 8px;
+    }
+
+    .modal:has(.client-enquiry-view) .modal-panel {
+        width: calc(100vw - 16px);
+        max-height: calc(100dvh - 16px);
+        padding: 18px 14px;
+        border-radius: 12px;
+    }
+
+    .client-enquiry-view .detail-page-header {
+        flex-direction: column;
+        margin-right: 34px;
+    }
+
+    .client-enquiry-view .detail-grid,
+    .client-enquiry-view form {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .client-enquiry-view .detail-row strong {
+        text-align: left;
+    }
+}
+
 
 /* ---------------------------------------------------------
    MODAL / PANEL SUPPORT

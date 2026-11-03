@@ -350,35 +350,90 @@
         if (!model.canReadDocuments) return "";
         const documents = Array.isArray(model.clientDocuments) ? model.clientDocuments : [];
         const requests = Array.isArray(model.documentRequests) ? model.documentRequests : [];
-        const openRequests = requests.filter(item => !["approved", "waived", "cancelled"].includes(String(item.status || "requested").toLowerCase()));
-        const documentRows = documents.length ? documents.map(document => `
-            <article class="client-workspace-row">
-                <strong>${escapeClientDetails(document.document_name || document.name || document.title || document.document_type || "Client document")}</strong>
-                <span>${escapeClientDetails(document.document_type || document.type || "Document")} · ${escapeClientDetails(document.status || document.review_status || "uploaded")}</span>
-                <span>${escapeClientDetails(document.file_name || document.original_filename || document.filename || "File record")}</span>
-            </article>
-        `).join("") : "<p>No uploaded document records.</p>";
-        const requestRows = requests.length ? requests.map(request => `
-            <article class="client-workspace-row">
-                <strong>${escapeClientDetails(request.document_name || request.document_type || request.title || "Requested document")}</strong>
-                <span>${escapeClientDetails(request.status || "requested")}${request.deadline || request.due_date ? ` · due ${escapeClientDetails(request.deadline || request.due_date)}` : ""}</span>
-                ${request.instructions || request.message ? `<p>${escapeClientDetails(request.instructions || request.message)}</p>` : ""}
-            </article>
-        `).join("") : "<p>No document requests have been recorded.</p>";
+        const statusOf = document => String(document.status || document.review_status || "uploaded").toLowerCase();
+        const pendingReview = documents.filter(document => ["uploaded", "submitted", "reviewing", "pending", "pending_review"].includes(statusOf(document))).length;
+        const approved = documents.filter(document => statusOf(document) === "approved").length;
+        const attention = Number.isFinite(Number(model.documentAttentionCount))
+            ? Number(model.documentAttentionCount)
+            : documents.filter(document => ["rejected", "expired", "attention_required"].includes(statusOf(document))).length;
+        const openRequests = requests.filter(item => !["approved", "waived", "cancelled", "completed"].includes(String(item.status || "requested").toLowerCase())).length;
 
         return `
             <details class="client-detail-accordion full-width">
-                <summary><span>Documents</span><strong>${documents.length} uploaded · ${openRequests.length} open requests</strong></summary>
+                <summary><span>Documents</span><strong>${documents.length} uploaded</strong></summary>
                 <div class="client-detail-accordion-content">
                     ${model.documentError ? `<p role="alert">${escapeClientDetails(model.documentError)}</p>` : ""}
-                    <h4>Uploaded documents (${documents.length})</h4>${documentRows}
-                    <h4>Requested documents (${requests.length})</h4>${requestRows}
-                    <p>Private preview and download controls appear in the Documents workspace only when secure Storage access is configured.</p>
+                    <div class="client-document-summary-grid">
+                        <div><span>Total uploaded</span><strong>${documents.length}</strong></div>
+                        <div><span>Pending review</span><strong>${pendingReview}</strong></div>
+                        <div><span>Approved</span><strong>${approved}</strong></div>
+                        <div><span>Rejected / attention</span><strong>${attention}</strong></div>
+                        <div><span>Outstanding requests</span><strong>${openRequests}</strong></div>
+                    </div>
+                    <button type="button" class="button button-secondary" data-client-open-documents data-client-id="${escapeClientDetails(model.clientId)}">VIEW DOCUMENTS</button>
                 </div>
             </details>
         `;
     }
 
+    function renderJourneyManagement(model) {
+        if (!model.canReadJourneys) return "";
+        const clientId = escapeClientDetails(model.clientId || "");
+        const enquiryId = escapeClientDetails(model.enquiry?.id || "");
+        const canWrite = Boolean(model.canWriteJourneys);
+        const journeys = Array.isArray(model.assignedJourneys) ? model.assignedJourneys : [];
+
+        if (!canWrite) {
+            const summaries = journeys.length ? journeys.map(journey => {
+                const milestones = Array.isArray(journey.milestones) ? journey.milestones : [];
+                const progress = milestones.length
+                    ? Math.round(milestones.filter(item => item.status === "completed").length / milestones.length * 100)
+                    : 0;
+                return `
+                    <article class="client-workspace-row">
+                        <strong>${escapeClientDetails(journey.title || journey.journeyType || "Client journey")}</strong>
+                        <span>${escapeClientDetails(journey.journeyType || journey.service || "Journey")} / ${escapeClientDetails(String(journey.status || "planning").replaceAll("_", " "))}</span>
+                        <span>${escapeClientDetails(journey.destination || "Destination not specified")} / ${escapeClientDetails(journey.service || "Service not specified")}</span>
+                        <span>Assigned ${escapeClientDetails(String(journey.createdAt || "Date unavailable").slice(0, 10))} / ${progress}% complete</span>
+                        ${milestones.map(item => `<span>${escapeClientDetails(item.title)} / ${escapeClientDetails(item.status || "pending")}${item.description ? ` / ${escapeClientDetails(item.description)}` : ""}</span>`).join("")}
+                    </article>
+                `;
+            }).join("") : "<p>No journeys have been assigned to this client.</p>";
+            return `
+                <details class="client-detail-accordion full-width">
+                    <summary><span>Journey Management</span><strong>${journeys.length} assigned</strong></summary>
+                    <div class="client-detail-accordion-content">${summaries}</div>
+                </details>
+            `;
+        }
+
+        return `
+            <details class="client-detail-accordion full-width client-journeys-card" data-client-journey-panel data-client-id="${clientId}" data-enquiry-id="${enquiryId}">
+                <summary><span>Journey Management</span></summary>
+                <div class="client-detail-accordion-content">
+                    <h3>Assigned journeys</h3>
+                    <div data-client-journey-list role="status" aria-live="polite">Loading assigned journeys...</div>
+                    ${canWrite ? `
+                        <h4>Journey requests</h4>
+                        <div data-client-journey-request-list role="status" aria-live="polite">Loading historical requests...</div>
+                        <form data-client-journey-form>
+                            <h4>Assign journey</h4>
+                            <label>Request to assign (optional)<select name="request_id"><option value="">Create a staff-planned journey</option></select></label>
+                            <label>Journey type<input name="journey_type" type="text" required maxlength="120" placeholder="e.g. Nursing Career"></label>
+                            <label>Title<input name="title" type="text" required maxlength="180" placeholder="e.g. Germany Nursing Career"></label>
+                            <label>Destination<input name="destination" type="text" required maxlength="120"></label>
+                            <label>Service<input name="service" type="text" required maxlength="180"></label>
+                            <label>Status<select name="status" required><option value="planning">Planning</option><option value="active">Active</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></label>
+                            <label>Internal assignee (optional)<select name="internal_assignee_id"><option value="">Unassigned</option></select></label>
+                            <label>Internal team / desk (optional)<select name="desk_id"><option value="">Unassigned</option></select></label>
+                            <button type="submit" class="button button-primary">ASSIGN JOURNEY</button>
+                            <p data-client-journey-message role="status" aria-live="polite"></p>
+                        </form>
+                    ` : ""}
+                </div>
+            </details>
+        `;
+    }
     function renderClientFollowups(model, clientId) {
         if (!model.canReadFollowups) return "";
         const followups = Array.isArray(model.clientFollowups) ? model.clientFollowups : [];
@@ -445,7 +500,7 @@
                         <p>${escapeClientDetails(enquiry.reference || enquiry.enquiry_reference || enquiry.id || "Enquiry")}</p>
                     </div>
                     <button type="button" class="button button-secondary" data-close-client-details>
-                        BACK TO ENQUIRIES
+                        BACK TO ${model.entryPoint === "clients" ? "CLIENTS" : "ENQUIRIES"}
                     </button>
                 </div>
 
@@ -486,6 +541,7 @@
                     </section>
                     </div>
                 </details>
+                ${renderJourneyManagement(model)}
                 ${renderAssessment(model, model.clientId)}
                 ${renderAppointments(model, model.clientId)}
                 ${renderClientDocuments(model)}
