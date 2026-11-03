@@ -4210,10 +4210,6 @@ window.LORDBLESS_CLIENT_ACCOUNT =
     LORDBLESS_CLIENT_ACCOUNT;
 
 
-window.LORDBLESS_JOURNEY_STEPS =
-    LORDBLESS_JOURNEY_STEPS;
-
-
 window.showClientView =
     showView;
 
