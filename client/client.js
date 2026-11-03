@@ -178,17 +178,11 @@ const LORDBLESS_CLIENT_DEVELOPMENT_FIXTURE = {
             destination:
                 "Germany",
 
-            status:
-                "in_progress",
+            stage:
+                "preparation",
 
-            statusLabel:
-                "In Progress",
-
-            progress:
-                65,
-
-            currentStep:
-                "prepare",
+            operationalStatus:
+                "active",
 
             created:
                 "2026-09-15",
@@ -198,9 +192,6 @@ const LORDBLESS_CLIENT_DEVELOPMENT_FIXTURE = {
 
             description:
                 "Career pathway and relocation support for Germany.",
-
-            nextStep:
-                "Complete your client details and upload the requested documents."
 
         },
 
@@ -225,17 +216,11 @@ const LORDBLESS_CLIENT_DEVELOPMENT_FIXTURE = {
             destination:
                 "China",
 
-            status:
+            stage:
                 "completed",
 
-            statusLabel:
-                "Completed",
-
-            progress:
-                100,
-
-            currentStep:
-                "continue",
+            operationalStatus:
+                "completed",
 
             created:
                 "2026-07-10",
@@ -245,9 +230,6 @@ const LORDBLESS_CLIENT_DEVELOPMENT_FIXTURE = {
 
             description:
                 "Business travel planning and support for China.",
-
-            nextStep:
-                "Journey completed. Your transaction remains available in your history."
 
         }
 
@@ -364,10 +346,8 @@ function applySharedPortalMockClient() {
 
     LORDBLESS_CLIENT_ACCOUNT.transactions =
         sharedJourneys.map(
-            (
-                journey,
-                index
-            ) => {
+            journey => {
+                const journeyState = window.LORDBLESS_JOURNEY_STATE;
 
                 const serviceKey =
                     String(
@@ -419,41 +399,17 @@ function applySharedPortalMockClient() {
                         serviceType
                     ],
 
-                    status:
-                        index === 0
-                            ? "in_progress"
-                            : "completed",
+                    stage: journeyState.normalizeStage(journey.stage),
+                    operationalStatus: journeyState.normalizeOperationalStatus(journey.operational_status || journey.operationalStatus),
 
-                    statusLabel:
-                        index === 0
-                            ? "In Progress"
-                            : "Completed",
+                    created: journey.created_at || journey.created || null,
 
-                    progress:
-                        index === 0
-                            ? 65
-                            : 100,
-
-                    currentStep:
-                        index === 0
-                            ? "prepare"
-                            : "continue",
-
-                    created:
-                        null,
-
-                    updated:
-                        null,
+                    updated: journey.updated_at || journey.updated || null,
 
                     description:
                         journey.service
                             ? `${journey.service} support for ${journey.destination || "your selected destination"}.`
-                            : "LORDBLESS journey support.",
-
-                    nextStep:
-                        index === 0
-                            ? "Complete your client details and upload the requested documents."
-                            : "Journey completed. Your transaction remains available in your history."
+                            : "LORDBLESS journey support."
 
                 };
 
@@ -490,28 +446,6 @@ function applySharedPortalMockClient() {
 /* ============================================================
    APPLY SHARED MOCK CLIENT
    ============================================================ */
-
-/* ============================================================
-   JOURNEY STEPS
-   ============================================================ */
-
-/* ============================================================
-   JOURNEY STEPS
-   ============================================================ */
-
-const LORDBLESS_JOURNEY_STEPS = [
-
-    "discover",
-    "assess",
-    "plan",
-    "prepare",
-    "connect",
-    "travel",
-    "arrive",
-    "continue"
-
-];
-
 
 /* ============================================================
    VIEW DEFINITIONS
@@ -602,7 +536,6 @@ let clientPortalInitialised = false;
 let clientAuthLookupUserId = null;
 let clientAuthResolvedUserId = null;
 let clientJourneyLoadError = "";
-let clientJourneyMilestoneError = "";
 let clientDocumentLoadError = "";
 let clientApplicationJourneyId = null;
 
@@ -634,13 +567,7 @@ function applyAuthenticatedClientRecord(client) {
 
 function mapAuthenticatedClientJourney(journey) {
 
-    const status = String(journey.status || "planning").toLowerCase();
-    const statusLabel = {
-        planning: "Planning",
-        active: "In Progress",
-        completed: "Completed",
-        cancelled: "Cancelled"
-    }[status] || "Planning";
+    const journeyState = window.LORDBLESS_JOURNEY_STATE;
     const serviceLabel = journey.service || journey.journey_type || "Consultancy Service";
     const category = `${journey.journey_type || ""} ${serviceLabel}`.toLowerCase();
     const serviceType = category.includes("career")
@@ -659,22 +586,11 @@ function mapAuthenticatedClientJourney(journey) {
         destination: journey.destination || "",
         service: serviceLabel,
         services: [serviceType],
-        status: status === "completed"
-            ? "completed"
-            : status === "cancelled"
-                ? "cancelled"
-                : "in_progress",
-        statusLabel,
-        progress: 0,
-        currentStep: status === "planning"
-            ? "plan"
-            : status === "completed" || status === "cancelled"
-                ? "continue"
-                : "prepare",
+        stage: journeyState.normalizeStage(journey.stage),
+        operationalStatus: journeyState.normalizeOperationalStatus(journey.operational_status),
         created: journey.created_at || null,
         updated: journey.updated_at || null,
-        description: "Your LORDBLESS CONSULTANCY service journey.",
-        nextStep: "Your LORDBLESS CONSULTANCY Team will update your journey here."
+        description: "Your LORDBLESS CONSULTANCY service journey."
     };
 
 }
@@ -685,12 +601,11 @@ async function loadAuthenticatedClientJourneys(clientId) {
     LORDBLESS_CLIENT_ACCOUNT.transactions = [];
     LORDBLESS_CLIENT_ACCOUNT.currentTransactionId = null;
     clientJourneyLoadError = "";
-    clientJourneyMilestoneError = "";
     const requestUserId = clientAuthLookupUserId;
 
     const { data, error } = await lordblessSupabase
         .from("client_journeys")
-        .select("id, client_id, journey_type, title, destination, service, status, created_at, updated_at")
+        .select("id, client_id, journey_type, title, destination, service, stage, operational_status, created_at, updated_at")
         .eq("client_id", clientId)
         .order("created_at", { ascending: true });
 
@@ -700,42 +615,15 @@ async function loadAuthenticatedClientJourneys(clientId) {
         return;
     }
 
-    let journeys = (data || [])
+    const journeys = (data || [])
         .filter(journey => journey.client_id === clientId)
         .map(mapAuthenticatedClientJourney);
-
-    if (journeys.length) {
-        const milestoneResult = await lordblessSupabase
-            .from("client_journey_milestones")
-            .select("id, journey_id, title, description, sort_order, status, due_date, completed_at")
-            .in("journey_id", journeys.map(journey => journey.id))
-            .order("sort_order", { ascending: true });
-        if (clientId !== LORDBLESS_CLIENT_ACCOUNT.id || requestUserId !== clientAuthLookupUserId) return;
-        if (milestoneResult.error) {
-            clientJourneyMilestoneError = milestoneResult.error.message || "Journey milestones could not be loaded.";
-        } else {
-            const milestonesByJourney = new Map();
-            for (const milestone of milestoneResult.data || []) {
-                if (!milestonesByJourney.has(milestone.journey_id)) milestonesByJourney.set(milestone.journey_id, []);
-                milestonesByJourney.get(milestone.journey_id).push(milestone);
-            }
-            journeys = journeys.map(journey => ({
-                ...journey,
-                milestones: milestonesByJourney.get(journey.id) || [],
-                progress: milestonesByJourney.get(journey.id)?.length
-                    ? Math.round(
-                        milestonesByJourney.get(journey.id).filter(item => item.status === "completed").length /
-                        milestonesByJourney.get(journey.id).length * 100
-                    )
-                    : journey.progress,
-                nextStep: milestonesByJourney.get(journey.id)?.find(item => item.status !== "completed")?.title || journey.nextStep
-            }));
-        }
-    }
+    if (clientId !== LORDBLESS_CLIENT_ACCOUNT.id || requestUserId !== clientAuthLookupUserId) return;
 
     LORDBLESS_CLIENT_ACCOUNT.transactions = journeys;
     LORDBLESS_CLIENT_ACCOUNT.currentTransactionId =
-        journeys.find(journey => journey.status === "in_progress")?.id ||
+        journeys.find(journey => journey.operationalStatus === "active")?.id ||
+        journeys.find(journey => journey.operationalStatus === "on_hold")?.id ||
         journeys[0]?.id ||
         null;
     clientApplicationJourneyId = LORDBLESS_CLIENT_ACCOUNT.currentTransactionId;
@@ -2079,15 +1967,14 @@ function renderDashboard() {
     const active =
         transactions.filter(
             transaction =>
-                transaction.status !==
-                "completed" && transaction.status !== "cancelled"
+                transaction.operationalStatus === "active"
         );
 
 
     const completed =
         transactions.filter(
             transaction =>
-                transaction.status ===
+                transaction.operationalStatus ===
                 "completed"
         );
 
@@ -2165,47 +2052,22 @@ function renderDashboard() {
     );
 
 
-    setText(
-        "overview-journey-status",
-        current.statusLabel
-    );
-
-
-    const progress =
-        clampProgress(
-            current.progress
-        );
-
-
-    setText(
-        "overview-progress-label",
-        `${progress}%`
-    );
-
-
-    const progressBar =
-        document.getElementById(
-            "overview-progress-bar"
-        );
-
-
-    if (progressBar) {
-
-        progressBar.style.width =
-            `${progress}%`;
-
+    const operationalStatus = window.LORDBLESS_JOURNEY_STATE.normalizeOperationalStatus(current.operationalStatus);
+    setText("overview-journey-status", window.LORDBLESS_JOURNEY_STATE.operationalStatusLabel(operationalStatus));
+    const statusBadge = document.getElementById("overview-journey-status");
+    if (statusBadge) {
+        statusBadge.classList.toggle("on-hold", operationalStatus === "on_hold");
+        statusBadge.classList.toggle("completed", operationalStatus === "completed");
+        statusBadge.classList.toggle("progress", operationalStatus === "active");
     }
 
-
     setText(
-        "overview-next-step",
-        current.nextStep
+        "overview-journey-stage",
+        window.LORDBLESS_JOURNEY_STATE.stageLabel(current.stage)
     );
 
-
-    renderJourneyPhases(
-        current
-    );
+    const onHoldNotice = document.getElementById("overview-journey-on-hold");
+    if (onHoldNotice) onHoldNotice.hidden = current.operationalStatus !== "on_hold";
 
 }
 
@@ -2330,115 +2192,6 @@ function getCurrentTransaction() {
 
 
 /* ============================================================
-   JOURNEY PHASES
-   ============================================================ */
-
-function renderJourneyPhases(
-    transaction
-) {
-
-    const container =
-        document.querySelector(
-            ".journey-phases"
-        );
-
-
-    if (!container) {
-        return;
-    }
-
-
-    const currentIndex =
-        LORDBLESS_JOURNEY_STEPS.indexOf(
-            transaction.currentStep
-        );
-
-
-    const labels = {
-
-        discover:
-            "Discover",
-
-        assess:
-            "Assess",
-
-        plan:
-            "Plan",
-
-        prepare:
-            "Prepare",
-
-        connect:
-            "Connect",
-
-        travel:
-            "Travel",
-
-        arrive:
-            "Arrive",
-
-        continue:
-            "Continue"
-
-    };
-
-
-    container.innerHTML =
-        LORDBLESS_JOURNEY_STEPS
-
-            .filter(
-                step =>
-                    step !== "continue"
-            )
-
-            .map(
-                (
-                    step,
-                    index
-                ) => {
-
-                    let className =
-                        "";
-
-
-                    if (
-                        index <
-                        currentIndex
-                    ) {
-
-                        className =
-                            "complete";
-
-                    } else if (
-                        index ===
-                        currentIndex
-                    ) {
-
-                        className =
-                            "current";
-
-                    }
-
-
-                    return `
-
-                        <span
-                            class="${className}"
-                        >
-                            ${labels[step]}
-                        </span>
-
-                    `;
-
-                }
-            )
-
-            .join("");
-
-}
-
-
-/* ============================================================
    TRANSACTION HISTORY
    ============================================================ */
 
@@ -2526,172 +2279,38 @@ function renderTransactionHistory() {
    TRANSACTION CARD
    ============================================================ */
 
-function createTransactionCard(
-    transaction
-) {
-
-    const isCompleted =
-        transaction.status === "completed" ||
-        transaction.status === "cancelled";
-
-
-    const isCurrent =
-        transaction.id ===
-        LORDBLESS_CLIENT_ACCOUNT.currentTransactionId;
-
-
-    const statusClass =
-        isCompleted
-            ? "completed"
-            : "progress";
-
-
-    const serviceInitial =
-        getServiceInitial(
-            transaction.services?.[0]
-        );
-
-
-    const progress =
-        clampProgress(
-            transaction.progress
-        );
-
+function createTransactionCard(transaction) {
+    const journeyState = window.LORDBLESS_JOURNEY_STATE;
+    const operationalStatus = journeyState.normalizeOperationalStatus(transaction.operationalStatus);
+    const isCurrent = transaction.id === LORDBLESS_CLIENT_ACCOUNT.currentTransactionId;
+    const statusClass = operationalStatus === "completed" ? "completed" : operationalStatus === "on_hold" ? "on-hold" : "progress";
+    const serviceInitial = getServiceInitial(transaction.services?.[0]);
 
     return `
-
-        <article
-            class="transaction-card ${isCurrent ? "current" : ""}"
-        >
-
-            <div class="transaction-icon">
-                ${escapeHTML(
-                    serviceInitial
-                )}
-            </div>
-
-
+        <article class="transaction-card ${isCurrent ? "current" : ""}">
+            <div class="transaction-icon">${escapeHTML(serviceInitial)}</div>
             <div class="transaction-main">
-
                 <div class="transaction-top">
-
                     <div>
-
-                        <span
-                            class="transaction-reference"
-                        >
-                            ${escapeHTML(
-                                transaction.id
-                            )}
-                        </span>
-
-                        <h3>
-                            ${escapeHTML(
-                                transaction.title
-                            )}
-                        </h3>
-
+                        <span class="transaction-reference">${escapeHTML(transaction.id)}</span>
+                        <h3>${escapeHTML(transaction.title)}</h3>
                     </div>
-
-
-                    <span
-                        class="
-                            transaction-status
-                            ${statusClass}
-                        "
-                    >
-                        ${escapeHTML(
-                            transaction.statusLabel
-                        )}
-                    </span>
-
+                    <span class="transaction-status ${statusClass}">${escapeHTML(journeyState.operationalStatusLabel(operationalStatus))}</span>
                 </div>
-
-
                 <div class="transaction-meta">
-
-                    <span>
-                        ${escapeHTML(
-                            transaction.service
-                        )}
-                    </span>
-
-                    <span>
-                        ${escapeHTML(
-                            transaction.destination
-                        )}
-                    </span>
-
+                    <span>${escapeHTML(transaction.service)}</span>
+                    <span>${escapeHTML(transaction.destination)}</span>
+                    <span>Current stage: ${escapeHTML(journeyState.stageLabel(transaction.stage))}</span>
+                    ${operationalStatus === "on_hold" ? "<span class=\"journey-on-hold-notice\">This journey is currently on hold.</span>" : ""}
                     <span>Your LORDBLESS CONSULTANCY Team</span>
-
-                    <span>
-                        Updated
-                        ${formatDate(
-                            transaction.updated
-                        )}
-                    </span>
-
+                    <span>Updated ${formatDate(transaction.updated)}</span>
                 </div>
-
-
-                <div
-                    class="transaction-progress"
-                >
-
-                    <div
-                        class="transaction-progress-bar"
-                        style="width:${progress}%"
-                    ></div>
-
+                <div class="transaction-footer">
+                    <button type="button" class="transaction-open-button" data-transaction-id="${escapeHTML(transaction.id)}">${isCurrent ? "Open Journey →" : "View Journey →"}</button>
                 </div>
-
-                ${clientJourneyMilestoneError
-                    ? `<p role="alert">Journey progress could not be loaded. ${escapeHTML(clientJourneyMilestoneError)}</p>`
-                    : transaction.milestones?.length
-                        ? `<section class="client-journey-milestones"><h4>Journey milestones</h4><ol>${transaction.milestones.map(milestone => `
-                            <li class="journey-milestone journey-milestone-${escapeHTML(milestone.status)}">
-                                <strong>${escapeHTML(milestone.title)}</strong>
-                                <span>${escapeHTML(milestone.status.replaceAll("_", " "))}</span>
-                                ${milestone.due_date ? `<time datetime="${escapeHTML(milestone.due_date)}">Due ${escapeHTML(formatDate(milestone.due_date))}</time>` : ""}
-                                ${milestone.description ? `<p>${escapeHTML(milestone.description)}</p>` : ""}
-                            </li>
-                        `).join("")}</ol></section>`
-                        : ""}
-
-
-                <div
-                    class="transaction-footer"
-                >
-
-                    <span>
-                        ${progress}% complete
-                    </span>
-
-
-                    <button
-                        type="button"
-                        class="transaction-open-button"
-                        data-transaction-id="${escapeHTML(
-                            transaction.id
-                        )}"
-                    >
-
-                        ${
-                            isCurrent
-                                ? "Open Journey →"
-                                : "View Journey →"
-                        }
-
-                    </button>
-
-                </div>
-
             </div>
-
         </article>
-
     `;
-
 }
 
 
@@ -2737,7 +2356,6 @@ function renderClientApplicationJourneyContext() {
             clientApplicationJourneyId = event.target.value;
             context.dataset.journeyId = clientApplicationJourneyId;
         });
-
 }
 
 
@@ -4531,38 +4149,6 @@ function formatDate(
         }
     ).format(
         date
-    );
-
-}
-
-
-/* ============================================================
-   HELPER: CLAMP PROGRESS
-   ============================================================ */
-
-function clampProgress(
-    value
-) {
-
-    const number =
-        Number(value);
-
-
-    if (
-        Number.isNaN(number)
-    ) {
-
-        return 0;
-
-    }
-
-
-    return Math.min(
-        100,
-        Math.max(
-            0,
-            number
-        )
     );
 
 }

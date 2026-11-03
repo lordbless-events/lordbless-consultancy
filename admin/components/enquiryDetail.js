@@ -109,15 +109,6 @@ function renderEnquiryDetail(
             hasPermission(currentAdmin, "finance.requests")
         );
 
-    const canManageJourneys =
-        Boolean(
-            isLinkedClientRecord &&
-            currentAdmin &&
-            typeof hasPermission === "function" &&
-            hasPermission(currentAdmin, "journeys.write")
-        );
-
-
     container.innerHTML = `
 
         <div class="enquiry-detail-page">
@@ -196,75 +187,6 @@ function renderEnquiryDetail(
 
             </div>
 
-
-            ${canManageJourneys ? `
-                <details
-                    class="detail-card client-detail-accordion client-journeys-card"
-                    data-client-journey-panel
-                    data-client-id="${escapeHTML(clientId)}"
-                    data-enquiry-id="${escapeHTML(enquiry.id || "")}">
-                    <summary><strong>Journeys, requests and milestones</strong></summary>
-                    <div class="client-detail-accordion-content">
-                    <h3>Client Journeys</h3>
-                    <p>Journeys are created when the consultancy determines the client’s service or case.</p>
-                    <div data-client-journey-list role="status" aria-live="polite">
-                        Loading journeys…
-                    </div>
-                    <h4>Client Journey Requests</h4>
-                    <div data-client-journey-request-list role="status" aria-live="polite">
-                        Loading journey requests…
-                    </div>
-                    <form data-client-journey-form>
-                        <h4>Create Journey</h4>
-                        <label>
-                            Request to assign (optional)
-                            <select name="request_id">
-                                <option value="">Create a staff-planned journey</option>
-                            </select>
-                        </label>
-                        <label>
-                            Journey Type
-                            <input name="journey_type" type="text" required maxlength="120" placeholder="e.g. Nursing Career">
-                        </label>
-                        <label>
-                            Title
-                            <input name="title" type="text" required maxlength="180" placeholder="e.g. Germany Nursing Career">
-                        </label>
-                        <label>
-                            Destination
-                            <input name="destination" type="text" required maxlength="120">
-                        </label>
-                        <label>
-                            Service
-                            <input name="service" type="text" required maxlength="180">
-                        </label>
-                        <label>
-                            Status
-                            <select name="status" required>
-                                <option value="planning">Planning</option>
-                                <option value="active">Active</option>
-                                <option value="completed">Completed</option>
-                                <option value="cancelled">Cancelled</option>
-                            </select>
-                        </label>
-                        <label>
-                            Internal Assignee (optional)
-                            <select name="internal_assignee_id">
-                                <option value="">Unassigned</option>
-                            </select>
-                        </label>
-                        <label>
-                            Internal Team / Desk (optional)
-                            <select name="desk_id">
-                                <option value="">Unassigned</option>
-                            </select>
-                        </label>
-                        <button type="submit" class="button button-primary">Create Journey</button>
-                        <p data-client-journey-message role="status" aria-live="polite"></p>
-                    </form>
-                    </div>
-                </details>
-            ` : ""}
 
             <div class="detail-grid">
 

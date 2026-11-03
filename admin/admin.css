@@ -3536,7 +3536,101 @@ body {
         width: 100%;
     }
 
-}/* =========================================================
+}
+
+/* Keep navigation and workspace in one layout on desktop. */
+@media (min-width: 701px) {
+    .admin-app {
+        display: grid;
+        grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+        align-items: start;
+    }
+
+    .sidebar {
+        position: sticky;
+        top: 0;
+        width: auto;
+        min-width: 0;
+        height: 100vh;
+        min-height: 100vh;
+    }
+
+    .main-content {
+        width: auto;
+        min-width: 0;
+        margin-left: 0;
+    }
+}
+
+.content-area,
+.topbar,
+.lbc-clients-page,
+.lbc-client-list,
+.client-journey-summary,
+.client-detail-accordion-content {
+    min-width: 0;
+}
+
+.content-area {
+    overflow-x: clip;
+}
+
+.lbc-client-toolbar {
+    min-width: 0;
+}
+
+.lbc-client-search {
+    min-width: 0;
+}
+
+.lbc-client-row {
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1.2fr) minmax(55px, 0.5fr) minmax(105px, 0.8fr) minmax(90px, 0.7fr);
+    min-width: 0;
+}
+
+.lbc-client-primary > div:last-child,
+.lbc-client-name,
+.lbc-client-detail > span:last-child,
+.client-journey-summary > * {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.client-journey-summary form {
+    display: flex;
+    align-items: end;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.client-journey-summary form label {
+    flex: 1 1 200px;
+    min-width: 0;
+}
+
+@media (max-width: 1100px) {
+    .lbc-client-row {
+        grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(55px, 0.5fr) minmax(95px, 0.8fr) minmax(85px, 0.7fr);
+    }
+}
+
+@media (max-width: 700px) {
+    .lbc-client-toolbar {
+        width: 100%;
+    }
+
+    .lbc-client-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+}
+
+@media (max-width: 480px) {
+    .lbc-client-row {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* =========================================================
    LORDBLESS ADMIN — DOCUMENT WORKSPACE
    Surgical CSS Addition
    ---------------------------------------------------------
@@ -4295,6 +4389,27 @@ body {
 .client-enquiry-view {
     width: 100%;
     max-width: 100%;
+    overflow-x: clip;
+    overflow-wrap: anywhere;
+}
+
+.modal:has(.client-enquiry-view) .modal-content,
+.client-enquiry-view .client-detail-accordion,
+.client-enquiry-view .client-detail-accordion-content,
+.client-enquiry-view .detail-card,
+.client-enquiry-view [data-client-journey-list] {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.client-enquiry-view input,
+.client-enquiry-view select,
+.client-enquiry-view textarea,
+.client-enquiry-view button {
+    min-width: 0;
+    max-width: 100%;
     overflow-wrap: anywhere;
 }
 
@@ -4548,6 +4663,88 @@ body {
 
     .lbc-document-form-group.full-width {
         grid-column: auto;
+    }
+}
+
+/* Final layout constraints for portal content and long client values. */
+@media (min-width: 701px) {
+    .admin-app {
+        display: grid;
+        grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+        align-items: start;
+    }
+
+    .sidebar {
+        position: sticky;
+        top: 0;
+        width: auto;
+        min-width: 0;
+        height: 100vh;
+    }
+
+    .main-content {
+        width: auto;
+        min-width: 0;
+        margin-left: 0;
+    }
+}
+
+.main-content,
+.content-area,
+.lbc-clients-page,
+.lbc-client-list,
+.lbc-client-row {
+    min-width: 0;
+}
+
+.content-area {
+    overflow-x: clip;
+}
+
+.lbc-client-toolbar,
+.lbc-client-search,
+.lbc-client-primary > div:last-child {
+    min-width: 0;
+}
+
+.lbc-client-row {
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1.2fr) minmax(55px, 0.5fr) minmax(105px, 0.8fr) minmax(90px, 0.7fr);
+}
+
+.lbc-client-name,
+.lbc-client-detail > span:last-child,
+.client-journey-summary > * {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.client-journey-summary form {
+    display: flex;
+    align-items: end;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.client-journey-summary form label {
+    flex: 1 1 200px;
+    min-width: 0;
+}
+
+@media (max-width: 1100px) and (min-width: 701px) {
+    .lbc-client-row {
+        grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(55px, 0.5fr) minmax(95px, 0.8fr) minmax(85px, 0.7fr);
+    }
+}
+
+@media (max-width: 700px) {
+    .lbc-client-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+}
+
+@media (max-width: 480px) {
+    .lbc-client-row {
+        grid-template-columns: minmax(0, 1fr);
     }
 }
 
@@ -8339,4 +8536,86 @@ input[type="checkbox"]:focus-visible {
         grid-template-columns: 1fr;
     }
 
+}
+
+/* Final parent and client-row constraints after the component styles. */
+@media (min-width: 701px) {
+    .admin-app {
+        display: grid;
+        grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+        align-items: start;
+    }
+
+    .sidebar {
+        position: sticky;
+        top: 0;
+        width: auto;
+        min-width: 0;
+        height: 100vh;
+    }
+
+    .main-content {
+        width: auto;
+        min-width: 0;
+        margin-left: 0;
+    }
+}
+
+.main-content,
+.content-area,
+.lbc-clients-page,
+.lbc-client-list,
+.lbc-client-row {
+    min-width: 0;
+}
+
+.content-area {
+    overflow-x: clip;
+}
+
+.lbc-client-toolbar,
+.lbc-client-search,
+.lbc-client-primary > div:last-child {
+    min-width: 0;
+}
+
+.lbc-client-row {
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1.2fr) minmax(55px, 0.5fr) minmax(105px, 0.8fr) minmax(90px, 0.7fr);
+}
+
+.lbc-client-name,
+.lbc-client-detail > span:last-child,
+.client-journey-summary > * {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.client-journey-summary form {
+    display: flex;
+    align-items: end;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.client-journey-summary form label {
+    flex: 1 1 200px;
+    min-width: 0;
+}
+
+@media (max-width: 1100px) and (min-width: 701px) {
+    .lbc-client-row {
+        grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(55px, 0.5fr) minmax(95px, 0.8fr) minmax(85px, 0.7fr);
+    }
+}
+
+@media (max-width: 700px) {
+    .lbc-client-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+}
+
+@media (max-width: 480px) {
+    .lbc-client-row {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }

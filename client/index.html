@@ -607,98 +607,29 @@
                                 class="status-pill progress"
                                 id="overview-journey-status"
                             >
-                                In Progress
+                                Active
                             </span>
 
                         </div>
 
 
-                        <div class="journey-progress-area">
-
-                            <div class="progress-meta">
-
-                                <span>
-                                    Journey progress
-                                </span>
-
-                                <strong
-                                    id="overview-progress-label"
-                                >
-                                    65%
-                                </strong>
-
-                            </div>
-
-
-                            <div class="progress-track">
-
-                                <div
-                                    class="progress-fill"
-                                    id="overview-progress-bar"
-                                    style="width:65%"
-                                ></div>
-
-                            </div>
-
-
-                            <div class="journey-phases">
-
-                                <span class="complete">
-                                    Discover
-                                </span>
-
-                                <span class="complete">
-                                    Assess
-                                </span>
-
-                                <span class="complete">
-                                    Plan
-                                </span>
-
-                                <span class="current">
-                                    Prepare
-                                </span>
-
-                                <span>
-                                    Connect
-                                </span>
-
-                                <span>
-                                    Travel
-                                </span>
-
-                                <span>
-                                    Arrive
-                                </span>
-
-                            </div>
-
+                        <div class="journey-current-stage">
+                            <span>Current stage</span>
+                            <strong id="overview-journey-stage">Preparation</strong>
                         </div>
+                        <p id="overview-journey-on-hold" class="journey-on-hold-notice" hidden>
+                            This journey is currently on hold. Your current stage is preserved.
+                        </p>
 
 
                         <div class="journey-card-footer">
-
-                            <div>
-
-                                <span class="footer-label">
-                                    NEXT STEP
-                                </span>
-
-                                <strong id="overview-next-step">
-                                    Complete your client details
-                                    and upload the requested
-                                    documents.
-                                </strong>
-
-                            </div>
-
 
                             <button
                                 type="button"
                                 class="primary-button"
                                 data-view-link="journeys"
                             >
-                                Continue Journey
+                                View Journey
                                 →
                             </button>
 
@@ -1457,12 +1388,11 @@
 <script src="components/applicationForm.js"></script>
 
 <script src="../js/portalDataBridge.js"></script>
+<script src="../js/journeyState.js"></script>
 
 <script src="../admin/payment/paymentDataBridge.js"></script>
 
 <script src="components/documentCentre.js"></script>
-
-<script src="components/phaseUnlockEngine.js"></script>
 
 <script src="components/accountActivation.js"></script>
 

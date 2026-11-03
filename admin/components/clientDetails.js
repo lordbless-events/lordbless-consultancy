@@ -385,17 +385,13 @@
 
         if (!canWrite) {
             const summaries = journeys.length ? journeys.map(journey => {
-                const milestones = Array.isArray(journey.milestones) ? journey.milestones : [];
-                const progress = milestones.length
-                    ? Math.round(milestones.filter(item => item.status === "completed").length / milestones.length * 100)
-                    : 0;
+                const state = window.LORDBLESS_JOURNEY_STATE;
                 return `
                     <article class="client-workspace-row">
                         <strong>${escapeClientDetails(journey.title || journey.journeyType || "Client journey")}</strong>
-                        <span>${escapeClientDetails(journey.journeyType || journey.service || "Journey")} / ${escapeClientDetails(String(journey.status || "planning").replaceAll("_", " "))}</span>
+                        <span>Current stage: ${escapeClientDetails(state.stageLabel(journey.stage))}</span>
+                        <span>Operational status: ${escapeClientDetails(state.operationalStatusLabel(journey.operationalStatus))}${journey.operationalStatus === "on_hold" ? " · This journey is currently on hold." : ""}</span>
                         <span>${escapeClientDetails(journey.destination || "Destination not specified")} / ${escapeClientDetails(journey.service || "Service not specified")}</span>
-                        <span>Assigned ${escapeClientDetails(String(journey.createdAt || "Date unavailable").slice(0, 10))} / ${progress}% complete</span>
-                        ${milestones.map(item => `<span>${escapeClientDetails(item.title)} / ${escapeClientDetails(item.status || "pending")}${item.description ? ` / ${escapeClientDetails(item.description)}` : ""}</span>`).join("")}
                     </article>
                 `;
             }).join("") : "<p>No journeys have been assigned to this client.</p>";
@@ -414,21 +410,22 @@
                     <h3>Assigned journeys</h3>
                     <div data-client-journey-list role="status" aria-live="polite">Loading assigned journeys...</div>
                     ${canWrite ? `
-                        <h4>Journey requests</h4>
-                        <div data-client-journey-request-list role="status" aria-live="polite">Loading historical requests...</div>
+                        <details class="client-journey-assignment" data-assign-another-journey ${journeys.length ? "" : "open"}>
+                            <summary ${journeys.length ? "" : "hidden"}>${journeys.length ? "Assign Another Journey" : ""}</summary>
                         <form data-client-journey-form>
-                            <h4>Assign journey</h4>
-                            <label>Request to assign (optional)<select name="request_id"><option value="">Create a staff-planned journey</option></select></label>
-                            <label>Journey type<input name="journey_type" type="text" required maxlength="120" placeholder="e.g. Nursing Career"></label>
+                            <h4>${journeys.length ? "Assign a new journey" : "Assign journey"}</h4>
+                            <label>Journey type<input name="journey_type" type="text" required maxlength="120"></label>
                             <label>Title<input name="title" type="text" required maxlength="180" placeholder="e.g. Germany Nursing Career"></label>
                             <label>Destination<input name="destination" type="text" required maxlength="120"></label>
                             <label>Service<input name="service" type="text" required maxlength="180"></label>
-                            <label>Status<select name="status" required><option value="planning">Planning</option><option value="active">Active</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></label>
+                            <label>Initial stage<select name="stage" required>${window.LORDBLESS_JOURNEY_STATE.stages.map(stage => `<option value="${stage.value}" ${stage.value === "enquiry" ? "selected" : ""}>${escapeClientDetails(stage.label)}</option>`).join("")}</select></label>
+                            <label>Initial operational status<select name="operational_status" required>${window.LORDBLESS_JOURNEY_STATE.operationalStatuses.map(status => `<option value="${status.value}" ${status.value === "active" ? "selected" : ""}>${escapeClientDetails(status.label)}</option>`).join("")}</select></label>
                             <label>Internal assignee (optional)<select name="internal_assignee_id"><option value="">Unassigned</option></select></label>
                             <label>Internal team / desk (optional)<select name="desk_id"><option value="">Unassigned</option></select></label>
-                            <button type="submit" class="button button-primary">ASSIGN JOURNEY</button>
+                            <button type="submit" class="button button-primary">ASSIGN NEW JOURNEY</button>
                             <p data-client-journey-message role="status" aria-live="polite"></p>
                         </form>
+                        </details>
                     ` : ""}
                 </div>
             </details>

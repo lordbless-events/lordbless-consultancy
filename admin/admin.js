@@ -3228,7 +3228,8 @@ function mapSupabaseJourney(record) {
         title: record.title || "",
         destination: record.destination || "",
         service: record.service || "",
-        status: record.status || "planning",
+        stage: record.stage || "enquiry",
+        operationalStatus: record.operational_status || "active",
         internalAssigneeId: record.internal_assignee_id || null,
         deskId: record.desk_id || null,
         desk: assignedDesk?.code || "",
@@ -3280,25 +3281,7 @@ async function loadAdminJourneys(clientId = null) {
     }
 
     state.journeyLoadError = "";
-    state.journeyMilestoneLoadError = "";
-    let mapped = (data || []).map(mapSupabaseJourney);
-    if (mapped.length && clientId) {
-        const milestoneResult = await lordblessSupabase
-            .from("client_journey_milestones")
-            .select("id, journey_id, title, description, sort_order, status, due_date, completed_at, created_at, updated_at")
-            .in("journey_id", mapped.map(item => item.id))
-            .order("sort_order", { ascending: true });
-        if (milestoneResult.error) {
-            state.journeyMilestoneLoadError = milestoneResult.error.message || "Journey milestone progress could not be loaded.";
-        } else {
-            const milestonesByJourney = new Map();
-            for (const milestone of milestoneResult.data || []) {
-                if (!milestonesByJourney.has(milestone.journey_id)) milestonesByJourney.set(milestone.journey_id, []);
-                milestonesByJourney.get(milestone.journey_id).push(milestone);
-            }
-            mapped = mapped.map(item => ({ ...item, milestones: milestonesByJourney.get(item.id) || [] }));
-        }
-    }
+    const mapped = (data || []).map(mapSupabaseJourney);
     if (state.adminIdentity?.id !== requestUserId) return [];
 
     if (clientId) {
@@ -3563,7 +3546,7 @@ function getAdminClientStatus(
         return {
             value: "active",
             label: journey
-                ? `Portal Active · Journey ${journey.status}`
+                ? `Portal Active · ${window.LORDBLESS_JOURNEY_STATE.stageLabel(journey.stage)} / ${window.LORDBLESS_JOURNEY_STATE.operationalStatusLabel(journey.operationalStatus)}`
                 : "Portal Active · No Journey Assigned"
         };
     }
@@ -3579,7 +3562,7 @@ function getAdminClientStatus(
     if (journey) {
         return {
             value: "journey",
-            label: `Journey ${journey.status} · Portal Not Active`
+            label: `Journey ${window.LORDBLESS_JOURNEY_STATE.stageLabel(journey.stage)} / ${window.LORDBLESS_JOURNEY_STATE.operationalStatusLabel(journey.operationalStatus)} · Portal Not Active`
         };
     }
 
@@ -3921,7 +3904,7 @@ function renderAdminClientRow(
                 <span>
                     ${
                         journey
-                            ? escapeHTML(`${journey.title} / ${String(journey.status || "planning").replaceAll("_", " ")}${journeys.length > 1 ? ` (+${journeys.length - 1} more)` : ""}`)
+                            ? escapeHTML(`${journey.title} / ${window.LORDBLESS_JOURNEY_STATE.stageLabel(journey.stage)} / ${window.LORDBLESS_JOURNEY_STATE.operationalStatusLabel(journey.operationalStatus)}${journeys.length > 1 ? ` (+${journeys.length - 1} more)` : ""}`)
                             : "—"
                     }
                 </span>
@@ -8334,28 +8317,35 @@ async function openAdminEnquiryClient(reference) {
 
 
 function renderAdminJourneyPanel(clientId) {
-
-    const panel = Array.from(
-        modalContent.querySelectorAll("[data-client-journey-panel]")
-    ).find(item => item.dataset.clientId === clientId);
-
+    const panel = Array.from(modalContent.querySelectorAll("[data-client-journey-panel]"))
+        .find(item => item.dataset.clientId === clientId);
     if (!panel) return;
 
     const canWriteJourneys = hasPermission(getCurrentUser(), "journeys.write");
-
+    const journeyState = window.LORDBLESS_JOURNEY_STATE;
     const list = panel.querySelector("[data-client-journey-list]");
     const journeys = state.journeys.filter(item => item.clientId === clientId);
+    const assignmentDisclosure = panel.querySelector("[data-assign-another-journey]");
+    if (assignmentDisclosure) {
+        assignmentDisclosure.open = journeys.length === 0;
+        const summary = assignmentDisclosure.querySelector("summary");
+        if (summary) {
+            summary.hidden = journeys.length === 0;
+            summary.textContent = "Assign Another Journey";
+        }
+    }
 
     if (list) {
         if (state.journeyLoadError) {
             list.textContent = `Journeys could not be loaded: ${state.journeyLoadError}`;
         } else if (!journeys.length) {
-            list.innerHTML = `<p>No journeys have been assigned yet.</p>`;
+            list.innerHTML = "<p>No journeys have been assigned yet.</p>";
         } else {
             list.innerHTML = journeys.map(journey => `
                 <article class="client-journey-summary">
-                    <strong>${escapeHTML(journey.title)}</strong>
-                    <span>${escapeHTML(journey.journeyType)} · ${escapeHTML(journey.status)}</span>
+                    <strong>${escapeHTML(journey.title || journey.journeyType || "Client journey")}</strong>
+                    ${canWriteJourneys ? "" : `<span>Current stage: ${escapeHTML(journeyState.stageLabel(journey.stage))}</span>`}
+                    ${canWriteJourneys ? "" : `<span>Operational status: ${escapeHTML(journeyState.operationalStatusLabel(journey.operationalStatus))}${journey.operationalStatus === "on_hold" ? " · This journey is currently on hold." : ""}</span>`}
                     <span>${escapeHTML(journey.destination || "—")} · ${escapeHTML(journey.service || "—")}</span>
                     ${journey.internalAssigneeId
                         ? `<span>Internal assignee: ${escapeHTML(state.journeyAssignees.find(item => item.user_id === journey.internalAssigneeId)?.display_name || "Assigned staff member")}</span>`
@@ -8364,172 +8354,47 @@ function renderAdminJourneyPanel(clientId) {
                         ? `<span>Internal team: ${escapeHTML(state.adminIdentity?.desks?.find(item => item.code === journey.desk)?.name || journey.desk)}</span>`
                         : ""}
                     <span>Assigned: ${escapeHTML(formatDate(journey.createdAt))}</span>
-                    <span>Progress: ${journey.milestones?.length ? Math.round(journey.milestones.filter(item => item.status === "completed").length / journey.milestones.length * 100) : 0}%</span>
-                    <strong>Milestones</strong>
-                    ${journey.milestones?.length ? journey.milestones.map(milestone => `
-                        <label class="client-journey-milestone-row">
-                            <span>${escapeHTML(milestone.title)}${milestone.due_date ? ` · due ${escapeHTML(milestone.due_date)}` : ""}</span>
-                            <select class="filter-select" data-journey-milestone-status="${escapeHTML(milestone.id)}" data-journey-id="${escapeHTML(journey.id)}" aria-label="Update ${escapeHTML(milestone.title)} progress">
-                                ${["pending", "in_progress", "completed", "blocked"].map(status => `<option value="${status}" ${milestone.status === status ? "selected" : ""}>${status.replaceAll("_", " ")}</option>`).join("")}
-                            </select>
-                        </label>
-                        ${milestone.description ? `<span>${escapeHTML(milestone.description)}</span>` : ""}
-                    `).join("") : `<span>No milestones have been added.</span>`}
-                    <form class="client-journey-milestone-form" data-journey-milestone-form data-journey-id="${escapeHTML(journey.id)}">
-                        <label>Milestone title<input name="title" type="text" maxlength="180" required></label>
-                        <label>Details<input name="description" type="text" maxlength="1000"></label>
-                        <label>Due date<input name="due_date" type="date"></label>
-                        <button type="submit" class="button button-secondary">ADD MILESTONE</button>
-                    </form>
-                    <p data-journey-milestone-message role="status" aria-live="polite"></p>
+                    ${canWriteJourneys ? `
+                        <form data-journey-update-form data-journey-id="${escapeHTML(journey.id)}">
+                            <label>Current journey stage<select name="stage" required>${journeyState.stages.map(stage => `<option value="${stage.value}" ${journeyState.normalizeStage(journey.stage) === stage.value ? "selected" : ""}>${escapeHTML(stage.label)}</option>`).join("")}</select></label>
+                            <label>Operational status<select name="operational_status" required>${journeyState.operationalStatuses.map(status => `<option value="${status.value}" ${journeyState.normalizeOperationalStatus(journey.operationalStatus) === status.value ? "selected" : ""}>${escapeHTML(status.label)}</option>`).join("")}</select></label>
+                            <button type="submit" class="button button-secondary">UPDATE</button>
+                            <p data-journey-update-message role="status" aria-live="polite"></p>
+                        </form>
+                    ` : ""}
                 </article>
             `).join("");
-            if (state.journeyMilestoneLoadError) {
-                list.insertAdjacentHTML("afterbegin", `<p role="alert">${escapeHTML(state.journeyMilestoneLoadError)}</p>`);
-            }
         }
     }
 
-    list?.querySelectorAll("[data-journey-milestone-status]").forEach(select => {
-        select.addEventListener("change", async () => {
-            const journey = journeys.find(item => item.id === select.dataset.journeyId);
-            const milestone = journey?.milestones?.find(item => item.id === select.dataset.journeyMilestoneStatus);
-            if (!milestone) return;
-            select.disabled = true;
-            const result = await lordblessSupabase.rpc("save_client_journey_milestone", {
-                p_milestone_id: milestone.id,
-                p_journey_id: journey.id,
-                p_title: milestone.title,
-                p_description: milestone.description || "",
-                p_sort_order: milestone.sort_order || 0,
-                p_due_date: milestone.due_date || null,
-                p_status: select.value
-            });
-            if (result.error) {
-                alert(result.error.message || "Unable to update milestone progress.");
-                select.disabled = false;
-                return;
-            }
-            await loadAdminJourneys(clientId);
-            renderAdminJourneyPanel(clientId);
-        });
-    });
-
-    list?.querySelectorAll("[data-journey-milestone-form]").forEach(form => {
+    list?.querySelectorAll("[data-journey-update-form]").forEach(form => {
         form.addEventListener("submit", async event => {
             event.preventDefault();
             const button = form.querySelector('[type="submit"]');
-            const message = form.parentElement.querySelector("[data-journey-milestone-message]");
-            const fields = new FormData(form);
+            const message = form.querySelector("[data-journey-update-message]");
             if (button) button.disabled = true;
-            if (message) message.textContent = "Saving milestone…";
-            const result = await lordblessSupabase.rpc("save_client_journey_milestone", {
-                p_milestone_id: null,
-                p_journey_id: form.dataset.journeyId,
-                p_title: String(fields.get("title") || "").trim(),
-                p_description: String(fields.get("description") || "").trim(),
-                p_sort_order: (journeys.find(item => item.id === form.dataset.journeyId)?.milestones || []).length,
-                p_due_date: fields.get("due_date") || null,
-                p_status: "pending"
-            });
-            if (result.error) {
-                if (message) message.textContent = result.error.message || "Unable to save milestone.";
+            if (message) message.textContent = "Saving journey stage and operational status…";
+            try {
+                const { data: updatedJourney, error } = await lordblessSupabase
+                    .from("client_journeys")
+                    .update({
+                        stage: form.elements.stage.value,
+                        operational_status: form.elements.operational_status.value
+                    })
+                    .eq("id", form.dataset.journeyId)
+                    .eq("client_id", clientId)
+                    .select("id")
+                    .maybeSingle();
+                if (error) throw error;
+                if (!updatedJourney) throw new Error("Journey was not updated. Check your access and try again.");
+                await loadAdminJourneys(clientId);
+                renderAdminJourneyPanel(clientId);
+            } catch (error) {
+                if (message) message.textContent = error?.message || "Unable to update journey.";
                 if (button) button.disabled = false;
-                return;
             }
-            await loadAdminJourneys(clientId);
-            renderAdminJourneyPanel(clientId);
         });
     });
-
-    const requestList = panel.querySelector("[data-client-journey-request-list]");
-    const requestSelect = panel.querySelector('[name="request_id"]');
-    if (requestList) {
-        requestList.textContent = "Loading journey requests…";
-        void lordblessSupabase
-            .from("client_journey_requests")
-            .select("id, client_id, service, destination, details, status, assigned_journey_id, created_at")
-            .eq("client_id", clientId)
-            .order("created_at", { ascending: false })
-            .then(({ data, error }) => {
-                if (!panel.isConnected || panel.dataset.clientId !== clientId) return;
-                if (error) {
-                    requestList.textContent = `Journey requests could not be loaded: ${error.message}`;
-                    return;
-                }
-
-                const requests = data || [];
-                requestList.innerHTML = requests.length ? requests.map(request => `
-                    <article class="client-journey-summary">
-                        <strong>${escapeHTML(request.service)}</strong>
-                        <span>${escapeHTML(request.destination || "Destination not specified")} · ${escapeHTML(request.status.replaceAll("_", " "))}</span>
-                        <span>Client: ${escapeHTML(getAdminClients().find(item => item.id === request.client_id)?.name || "Linked client")}</span>
-                        <span>Submitted: ${escapeHTML(formatDate(request.created_at))}</span>
-                        <span>${escapeHTML(request.details?.client_message || "")}</span>
-                        ${request.details?.review_reason ? `<span>Review note: ${escapeHTML(request.details.review_reason)}</span>` : ""}
-                        ${request.assigned_journey_id ? `<span>Assigned journey: ${escapeHTML(request.assigned_journey_id)}</span>` : ""}
-                        <div>
-                            ${request.assigned_journey_id || !["requested", "in_review", "approved"].includes(request.status) ? "" : `<button type="button" class="button button-secondary" data-use-journey-request="${escapeHTML(request.id)}">Prepare Assignment</button>`}
-                            ${request.assigned_journey_id ? "" : `<label>Review decision<select class="filter-select" data-journey-request-status="${escapeHTML(request.id)}" aria-label="Update request status"><option value="requested" ${request.status === "requested" ? "selected" : ""}>Requested</option><option value="in_review" ${request.status === "in_review" ? "selected" : ""}>In review</option><option value="approved" ${request.status === "approved" ? "selected" : ""}>Approved</option><option value="rejected" ${request.status === "rejected" ? "selected" : ""}>Declined</option><option value="cancelled" ${request.status === "cancelled" ? "selected" : ""}>Cancelled</option></select></label><label>Review reason / note<textarea data-journey-request-reason="${escapeHTML(request.id)}" rows="2" maxlength="1500">${escapeHTML(request.details?.review_reason || "")}</textarea></label>`}
-                        </div>
-                    </article>
-                `).join("") : "<p>No client journey requests have been submitted.</p>";
-
-                if (requestSelect) {
-                    requestSelect.innerHTML = `<option value="">Create a staff-planned journey</option>` + requests
-                        .filter(request => !request.assigned_journey_id && ["requested", "in_review", "approved"].includes(request.status))
-                        .map(request => `<option value="${escapeHTML(request.id)}">${escapeHTML(request.service)} · ${escapeHTML(request.destination || "No destination")}</option>`)
-                        .join("");
-                }
-
-                requestList.querySelectorAll("[data-use-journey-request]").forEach(button => {
-                    button.addEventListener("click", () => {
-                        const request = requests.find(item => item.id === button.dataset.useJourneyRequest);
-                        if (!request || !form) return;
-                        if (requestSelect) requestSelect.value = request.id;
-                        form.elements.journey_type.value = request.service;
-                        form.elements.title.value = `${request.service}${request.destination ? ` · ${request.destination}` : ""}`;
-                        form.elements.destination.value = request.destination || "";
-                        form.elements.service.value = request.service;
-                        form.scrollIntoView({ behavior: "smooth", block: "center" });
-                    });
-                });
-
-                requestList.querySelectorAll("[data-journey-request-status]").forEach(select => {
-                    select.addEventListener("change", async () => {
-                        const reasonField = requestList.querySelector(`[data-journey-request-reason="${select.dataset.journeyRequestStatus}"]`);
-                        const reason = String(reasonField?.value || "").trim();
-                        if (select.value === "rejected" && !reason) {
-                            alert("Add a reason before declining this journey request.");
-                            select.value = requests.find(item => item.id === select.dataset.journeyRequestStatus)?.status || "requested";
-                            reasonField?.focus();
-                            return;
-                        }
-                        select.disabled = true;
-                        const original = requests.find(item => item.id === select.dataset.journeyRequestStatus);
-                        const result = await lordblessSupabase
-                            .from("client_journey_requests")
-                            .update({
-                                status: select.value,
-                                details: { ...(original?.details || {}), review_reason: reason || null },
-                                reviewed_by: state.adminIdentity?.id,
-                                reviewed_at: new Date().toISOString()
-                            })
-                            .eq("id", select.dataset.journeyRequestStatus)
-                            .eq("client_id", clientId);
-                        if (result.error) {
-                            alert(result.error.message || "Unable to update journey request.");
-                            select.disabled = false;
-                            return;
-                        }
-                        renderAdminJourneyPanel(clientId);
-                    });
-                });
-            })
-            .catch(error => {
-                if (panel.isConnected) requestList.textContent = error?.message || "Journey requests could not be loaded.";
-            });
-    }
 
     const deskSelect = panel.querySelector('[name="desk_id"]');
     if (deskSelect && deskSelect.dataset.optionsLoaded !== "true") {
@@ -8555,11 +8420,9 @@ function renderAdminJourneyPanel(clientId) {
 
     const form = panel.querySelector("[data-client-journey-form]");
     if (!form || form.dataset.bound === "true") return;
-
     form.dataset.bound = "true";
     form.addEventListener("submit", async event => {
         event.preventDefault();
-
         const submit = form.querySelector('[type="submit"]');
         const message = panel.querySelector("[data-client-journey-message]");
         const fields = new FormData(form);
@@ -8570,61 +8433,49 @@ function renderAdminJourneyPanel(clientId) {
             title: String(fields.get("title") || "").trim(),
             destination: String(fields.get("destination") || "").trim(),
             service: String(fields.get("service") || "").trim(),
-            status: String(fields.get("status") || "planning"),
+            stage: String(fields.get("stage") || "enquiry"),
+            operational_status: String(fields.get("operational_status") || "active"),
             internal_assignee_id: String(fields.get("internal_assignee_id") || "") || null,
             desk_id: String(fields.get("desk_id") || "") || null
         };
-        const requestId = String(fields.get("request_id") || "");
+
+        const normalizeJourneyValue = value => String(value || "").trim().toLocaleLowerCase();
+        const duplicateJourney = state.journeys.some(journey =>
+            journey.clientId === clientId &&
+            normalizeJourneyValue(journey.journeyType) === normalizeJourneyValue(payload.journey_type) &&
+            normalizeJourneyValue(journey.service) === normalizeJourneyValue(payload.service) &&
+            normalizeJourneyValue(journey.destination) === normalizeJourneyValue(payload.destination)
+        );
+        if (duplicateJourney) {
+            if (message) message.textContent = "This client already has the same journey type, service, and destination assigned.";
+            return;
+        }
 
         if (submit) submit.disabled = true;
-        if (message) message.textContent = "Saving Journey…";
-
+        if (message) message.textContent = "Assigning journey…";
         try {
-            if (requestId) {
-                const { data: createdId, error } = await lordblessSupabase.rpc("assign_client_journey_request", {
-                    p_request_id: requestId,
-                    p_journey_type: payload.journey_type,
-                    p_title: payload.title,
-                    p_destination: payload.destination,
-                    p_service: payload.service,
-                    p_status: payload.status,
-                    p_internal_assignee_id: payload.internal_assignee_id,
-                    p_desk_id: payload.desk_id
-                });
-                if (error) throw error;
-                if (!createdId) throw new Error("The journey assignment was not confirmed.");
-            } else {
-                const { data, error } = await lordblessSupabase
-                    .from("client_journeys")
-                    .insert(payload)
-                    .select("id, client_id, enquiry_id, journey_type, title, destination, service, status, created_at, updated_at")
-                    .single();
-
-                if (error) throw error;
-                const created = mapSupabaseJourney({
-                    ...data,
-                    internal_assignee_id: payload.internal_assignee_id,
-                    desk_id: payload.desk_id
-                });
-                state.journeys = [
-                    ...state.journeys.filter(item => item.id !== created.id),
-                    created
-                ];
-            }
-
-            await loadAdminJourneys(clientId);
+            const { error } = await lordblessSupabase.from("client_journeys").insert(payload);
+            if (error) throw error;
             form.reset();
-            if (message) message.textContent = "Journey created.";
+            await loadAdminJourneys(clientId);
             renderAdminJourneyPanel(clientId);
+            const assignmentDisclosure = form.closest("[data-assign-another-journey]");
+            if (assignmentDisclosure) {
+                assignmentDisclosure.open = false;
+                const summary = assignmentDisclosure.querySelector("summary");
+                if (summary) {
+                    summary.hidden = false;
+                    summary.textContent = "Assign Another Journey";
+                }
+            }
+            const updatedMessage = panel.querySelector("[data-client-journey-message]");
+            if (updatedMessage) updatedMessage.textContent = "Journey assigned.";
         } catch (error) {
-            if (message) message.textContent = error?.message || String(error);
-        } finally {
+            if (message) message.textContent = error?.message || "Unable to assign journey.";
             if (submit) submit.disabled = false;
         }
     });
-
 }
-
 
 function openEnquiry(
     reference
