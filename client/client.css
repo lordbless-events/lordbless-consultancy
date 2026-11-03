@@ -4677,6 +4677,65 @@ input:focus-visible {
 
 }
 
+.transaction-progress-summary {
+    margin-top: 14px;
+    padding: 14px;
+    border-radius: 10px;
+    background: #f8f7f4;
+}
+
+.transaction-progress-summary > div:first-child {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+    font-size: 12px;
+}
+
+.transaction-progress {
+    height: 6px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #e7e3db;
+}
+
+.transaction-progress-bar {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--champagne-500);
+}
+
+.client-journey-milestones {
+    display: grid;
+    gap: 8px;
+    margin: 12px 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.client-journey-milestones li {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+    padding: 10px 12px;
+    border: 1px solid #e8e4dc;
+    border-radius: 8px;
+    background: #fff;
+}
+
+.client-journey-milestones li > span,
+.client-journey-milestones li > time {
+    color: var(--text-500);
+    font-size: 11px;
+    text-transform: capitalize;
+}
+
+.client-journey-milestones li p {
+    margin: 4px 0 0;
+    overflow-wrap: anywhere;
+}
+
 
 /* =========================================================
    39. MOBILE

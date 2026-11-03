@@ -568,6 +568,9 @@ function applyAuthenticatedClientRecord(client) {
 function mapAuthenticatedClientJourney(journey) {
 
     const journeyState = window.LORDBLESS_JOURNEY_STATE;
+    const stage = journeyState.normalizeStage(journey.stage);
+    const operationalStatus = journeyState.normalizeOperationalStatus(journey.operational_status);
+    const statusLabel = journeyState.operationalStatusLabel(operationalStatus);
     const serviceLabel = journey.service || journey.journey_type || "Consultancy Service";
     const category = `${journey.journey_type || ""} ${serviceLabel}`.toLowerCase();
     const serviceType = category.includes("career")
@@ -586,11 +589,14 @@ function mapAuthenticatedClientJourney(journey) {
         destination: journey.destination || "",
         service: serviceLabel,
         services: [serviceType],
-        stage: journeyState.normalizeStage(journey.stage),
-        operationalStatus: journeyState.normalizeOperationalStatus(journey.operational_status),
+        status: operationalStatus === "completed" ? "completed" : "in_progress",
+        stage,
+        operationalStatus,
+        statusLabel,
         created: journey.created_at || null,
         updated: journey.updated_at || null,
-        description: "Your LORDBLESS CONSULTANCY service journey."
+        description: "Your LORDBLESS CONSULTANCY service journey.",
+        nextStep: "Your LORDBLESS CONSULTANCY Team will update your journey here."
     };
 
 }
@@ -623,7 +629,6 @@ async function loadAuthenticatedClientJourneys(clientId) {
     LORDBLESS_CLIENT_ACCOUNT.transactions = journeys;
     LORDBLESS_CLIENT_ACCOUNT.currentTransactionId =
         journeys.find(journey => journey.operationalStatus === "active")?.id ||
-        journeys.find(journey => journey.operationalStatus === "on_hold")?.id ||
         journeys[0]?.id ||
         null;
     clientApplicationJourneyId = LORDBLESS_CLIENT_ACCOUNT.currentTransactionId;
@@ -1966,16 +1971,14 @@ function renderDashboard() {
 
     const active =
         transactions.filter(
-            transaction =>
-                transaction.operationalStatus === "active"
+            transaction => transaction.operationalStatus === "active"
         );
 
 
     const completed =
         transactions.filter(
             transaction =>
-                transaction.operationalStatus ===
-                "completed"
+                transaction.status === "completed" || transaction.status === "cancelled" || transaction.operationalStatus === "completed"
         );
 
 
@@ -2052,22 +2055,26 @@ function renderDashboard() {
     );
 
 
-    const operationalStatus = window.LORDBLESS_JOURNEY_STATE.normalizeOperationalStatus(current.operationalStatus);
-    setText("overview-journey-status", window.LORDBLESS_JOURNEY_STATE.operationalStatusLabel(operationalStatus));
+    const isOnHold = current.operationalStatus === "on_hold";
+    const journeyState = window.LORDBLESS_JOURNEY_STATE;
+    const isCompleted = current.operationalStatus === "completed";
+    const currentStatusLabel = journeyState.operationalStatusLabel(current.operationalStatus);
+    const heading = document.getElementById("overview-journey-heading");
+    if (heading) {
+        heading.textContent = isCompleted ? "Your Completed Journey" : isOnHold ? "Your Journey On Hold" : "Your Active Journey";
+    }
+    setText("overview-journey-status", currentStatusLabel);
     const statusBadge = document.getElementById("overview-journey-status");
     if (statusBadge) {
-        statusBadge.classList.toggle("on-hold", operationalStatus === "on_hold");
-        statusBadge.classList.toggle("completed", operationalStatus === "completed");
-        statusBadge.classList.toggle("progress", operationalStatus === "active");
+        statusBadge.classList.toggle("on-hold", isOnHold);
+        statusBadge.classList.toggle("completed", isCompleted);
+        statusBadge.classList.toggle("progress", !isCompleted && !isOnHold);
     }
 
-    setText(
-        "overview-journey-stage",
-        window.LORDBLESS_JOURNEY_STATE.stageLabel(current.stage)
-    );
+    setText("overview-journey-stage", journeyState.stageLabel(current.stage));
 
     const onHoldNotice = document.getElementById("overview-journey-on-hold");
-    if (onHoldNotice) onHoldNotice.hidden = current.operationalStatus !== "on_hold";
+    if (onHoldNotice) onHoldNotice.hidden = !isOnHold;
 
 }
 
@@ -2280,11 +2287,15 @@ function renderTransactionHistory() {
    ============================================================ */
 
 function createTransactionCard(transaction) {
-    const journeyState = window.LORDBLESS_JOURNEY_STATE;
-    const operationalStatus = journeyState.normalizeOperationalStatus(transaction.operationalStatus);
     const isCurrent = transaction.id === LORDBLESS_CLIENT_ACCOUNT.currentTransactionId;
-    const statusClass = operationalStatus === "completed" ? "completed" : operationalStatus === "on_hold" ? "on-hold" : "progress";
+    const status = transaction.operationalStatus;
+    const isCompleted = status === "completed";
+    const statusClass = transaction.operationalStatus === "on_hold"
+        ? "on-hold"
+        : isCompleted ? "completed" : "progress";
     const serviceInitial = getServiceInitial(transaction.services?.[0]);
+    const journeyState = window.LORDBLESS_JOURNEY_STATE;
+    const statusLabel = journeyState.operationalStatusLabel(status);
 
     return `
         <article class="transaction-card ${isCurrent ? "current" : ""}">
@@ -2295,15 +2306,18 @@ function createTransactionCard(transaction) {
                         <span class="transaction-reference">${escapeHTML(transaction.id)}</span>
                         <h3>${escapeHTML(transaction.title)}</h3>
                     </div>
-                    <span class="transaction-status ${statusClass}">${escapeHTML(journeyState.operationalStatusLabel(operationalStatus))}</span>
+                    <span class="transaction-status ${statusClass}">${escapeHTML(statusLabel)}</span>
                 </div>
                 <div class="transaction-meta">
                     <span>${escapeHTML(transaction.service)}</span>
                     <span>${escapeHTML(transaction.destination)}</span>
-                    <span>Current stage: ${escapeHTML(journeyState.stageLabel(transaction.stage))}</span>
-                    ${operationalStatus === "on_hold" ? "<span class=\"journey-on-hold-notice\">This journey is currently on hold.</span>" : ""}
                     <span>Your LORDBLESS CONSULTANCY Team</span>
                     <span>Updated ${formatDate(transaction.updated)}</span>
+                </div>
+                <div class="transaction-progress-summary">
+                    <strong>Current stage: ${escapeHTML(journeyState.stageLabel(transaction.stage))}</strong>
+                    ${status === "on_hold" ? "<p>This journey is currently on hold. Your stage is preserved.</p>" : ""}
+                    <ol class="journey-stage-list">${journeyState.stages.map(stage => `<li class="${stage.value === transaction.stage ? "current" : ""}" ${stage.value === transaction.stage ? 'aria-current="step"' : ""}>${escapeHTML(stage.label)}${stage.value === transaction.stage ? " · Current" : ""}</li>`).join("")}</ol>
                 </div>
                 <div class="transaction-footer">
                     <button type="button" class="transaction-open-button" data-transaction-id="${escapeHTML(transaction.id)}">${isCurrent ? "Open Journey →" : "View Journey →"}</button>

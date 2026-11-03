@@ -385,12 +385,11 @@
 
         if (!canWrite) {
             const summaries = journeys.length ? journeys.map(journey => {
-                const state = window.LORDBLESS_JOURNEY_STATE;
                 return `
                     <article class="client-workspace-row">
                         <strong>${escapeClientDetails(journey.title || journey.journeyType || "Client journey")}</strong>
-                        <span>Current stage: ${escapeClientDetails(state.stageLabel(journey.stage))}</span>
-                        <span>Operational status: ${escapeClientDetails(state.operationalStatusLabel(journey.operationalStatus))}${journey.operationalStatus === "on_hold" ? " · This journey is currently on hold." : ""}</span>
+                        <span>Current stage: ${escapeClientDetails(window.LORDBLESS_JOURNEY_STATE.stageLabel(journey.stage))}</span>
+                        <span>Operational status: ${escapeClientDetails(window.LORDBLESS_JOURNEY_STATE.operationalStatusLabel(journey.operationalStatus))}</span>
                         <span>${escapeClientDetails(journey.destination || "Destination not specified")} / ${escapeClientDetails(journey.service || "Service not specified")}</span>
                     </article>
                 `;
@@ -418,7 +417,7 @@
                             <label>Title<input name="title" type="text" required maxlength="180" placeholder="e.g. Germany Nursing Career"></label>
                             <label>Destination<input name="destination" type="text" required maxlength="120"></label>
                             <label>Service<input name="service" type="text" required maxlength="180"></label>
-                            <label>Initial stage<select name="stage" required>${window.LORDBLESS_JOURNEY_STATE.stages.map(stage => `<option value="${stage.value}" ${stage.value === "enquiry" ? "selected" : ""}>${escapeClientDetails(stage.label)}</option>`).join("")}</select></label>
+                            <label>Initial journey stage<select name="stage" required>${window.LORDBLESS_JOURNEY_STATE.stages.map(stage => `<option value="${stage.value}" ${stage.value === "enquiry" ? "selected" : ""}>${escapeClientDetails(stage.label)}</option>`).join("")}</select></label>
                             <label>Initial operational status<select name="operational_status" required>${window.LORDBLESS_JOURNEY_STATE.operationalStatuses.map(status => `<option value="${status.value}" ${status.value === "active" ? "selected" : ""}>${escapeClientDetails(status.label)}</option>`).join("")}</select></label>
                             <label>Internal assignee (optional)<select name="internal_assignee_id"><option value="">Unassigned</option></select></label>
                             <label>Internal team / desk (optional)<select name="desk_id"><option value="">Unassigned</option></select></label>

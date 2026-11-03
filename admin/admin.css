@@ -3630,6 +3630,37 @@ body {
     }
 }
 
+.client-journey-milestone-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(130px, auto);
+    gap: 8px 14px;
+    align-items: center;
+    min-width: 0;
+    padding: 10px 12px;
+    border: 1px solid var(--lb-border);
+    border-radius: 8px;
+    background: #fff;
+}
+
+.client-journey-milestone-row > * {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.client-journey-milestone-form,
+.client-journey-summary [data-journey-update-form] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 12px;
+}
+
+.client-journey-milestone-form label,
+.client-journey-summary [data-journey-update-form] label {
+    flex: 1 1 180px;
+    min-width: 0;
+}
+
 /* =========================================================
    LORDBLESS ADMIN — DOCUMENT WORKSPACE
    Surgical CSS Addition

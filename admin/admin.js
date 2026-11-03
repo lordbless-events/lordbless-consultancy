@@ -3228,8 +3228,8 @@ function mapSupabaseJourney(record) {
         title: record.title || "",
         destination: record.destination || "",
         service: record.service || "",
-        stage: record.stage || "enquiry",
-        operationalStatus: record.operational_status || "active",
+        stage: window.LORDBLESS_JOURNEY_STATE.normalizeStage(record.stage),
+        operationalStatus: window.LORDBLESS_JOURNEY_STATE.normalizeOperationalStatus(record.operational_status),
         internalAssigneeId: record.internal_assignee_id || null,
         deskId: record.desk_id || null,
         desk: assignedDesk?.code || "",
@@ -3281,7 +3281,7 @@ async function loadAdminJourneys(clientId = null) {
     }
 
     state.journeyLoadError = "";
-    const mapped = (data || []).map(mapSupabaseJourney);
+    let mapped = (data || []).map(mapSupabaseJourney);
     if (state.adminIdentity?.id !== requestUserId) return [];
 
     if (clientId) {
@@ -3541,12 +3541,15 @@ function getAdminClientStatus(
 
 
     const account = state.portalClientAccounts.find(item => item.client_id === clientId);
+    const journeyStatusLabel = journey
+        ? `${window.LORDBLESS_JOURNEY_STATE.stageLabel(journey.stage)} · ${window.LORDBLESS_JOURNEY_STATE.operationalStatusLabel(journey.operationalStatus)}`
+        : "";
 
     if (account?.access_status === "active") {
         return {
             value: "active",
             label: journey
-                ? `Portal Active · ${window.LORDBLESS_JOURNEY_STATE.stageLabel(journey.stage)} / ${window.LORDBLESS_JOURNEY_STATE.operationalStatusLabel(journey.operationalStatus)}`
+                ? `Portal Active · Journey ${journeyStatusLabel}`
                 : "Portal Active · No Journey Assigned"
         };
     }
@@ -3562,7 +3565,7 @@ function getAdminClientStatus(
     if (journey) {
         return {
             value: "journey",
-            label: `Journey ${window.LORDBLESS_JOURNEY_STATE.stageLabel(journey.stage)} / ${window.LORDBLESS_JOURNEY_STATE.operationalStatusLabel(journey.operationalStatus)} · Portal Not Active`
+            label: `Journey ${journeyStatusLabel} · Portal Not Active`
         };
     }
 
@@ -8342,28 +8345,28 @@ function renderAdminJourneyPanel(clientId) {
             list.innerHTML = "<p>No journeys have been assigned yet.</p>";
         } else {
             list.innerHTML = journeys.map(journey => `
-                <article class="client-journey-summary">
-                    <strong>${escapeHTML(journey.title || journey.journeyType || "Client journey")}</strong>
-                    ${canWriteJourneys ? "" : `<span>Current stage: ${escapeHTML(journeyState.stageLabel(journey.stage))}</span>`}
-                    ${canWriteJourneys ? "" : `<span>Operational status: ${escapeHTML(journeyState.operationalStatusLabel(journey.operationalStatus))}${journey.operationalStatus === "on_hold" ? " · This journey is currently on hold." : ""}</span>`}
-                    <span>${escapeHTML(journey.destination || "—")} · ${escapeHTML(journey.service || "—")}</span>
-                    ${journey.internalAssigneeId
-                        ? `<span>Internal assignee: ${escapeHTML(state.journeyAssignees.find(item => item.user_id === journey.internalAssigneeId)?.display_name || "Assigned staff member")}</span>`
-                        : ""}
-                    ${journey.desk
-                        ? `<span>Internal team: ${escapeHTML(state.adminIdentity?.desks?.find(item => item.code === journey.desk)?.name || journey.desk)}</span>`
-                        : ""}
-                    <span>Assigned: ${escapeHTML(formatDate(journey.createdAt))}</span>
-                    ${canWriteJourneys ? `
-                        <form data-journey-update-form data-journey-id="${escapeHTML(journey.id)}">
-                            <label>Current journey stage<select name="stage" required>${journeyState.stages.map(stage => `<option value="${stage.value}" ${journeyState.normalizeStage(journey.stage) === stage.value ? "selected" : ""}>${escapeHTML(stage.label)}</option>`).join("")}</select></label>
-                            <label>Operational status<select name="operational_status" required>${journeyState.operationalStatuses.map(status => `<option value="${status.value}" ${journeyState.normalizeOperationalStatus(journey.operationalStatus) === status.value ? "selected" : ""}>${escapeHTML(status.label)}</option>`).join("")}</select></label>
-                            <button type="submit" class="button button-secondary">UPDATE</button>
-                            <p data-journey-update-message role="status" aria-live="polite"></p>
-                        </form>
-                    ` : ""}
-                </article>
-            `).join("");
+                    <article class="client-journey-summary">
+                        <strong>${escapeHTML(journey.title || journey.journeyType || "Client journey")}</strong>
+                        <span>Current stage: ${escapeHTML(journeyState.stageLabel(journey.stage))}</span>
+                        <span>Operational status: ${escapeHTML(journeyState.operationalStatusLabel(journey.operationalStatus))}${journey.operationalStatus === "on_hold" ? " · This journey is currently on hold." : ""}</span>
+                        <span>${escapeHTML(journey.destination || "—")} · ${escapeHTML(journey.service || "—")}</span>
+                        ${journey.internalAssigneeId
+                            ? `<span>Internal assignee: ${escapeHTML(state.journeyAssignees.find(item => item.user_id === journey.internalAssigneeId)?.display_name || "Assigned staff member")}</span>`
+                            : ""}
+                        ${journey.desk
+                            ? `<span>Internal team: ${escapeHTML(state.adminIdentity?.desks?.find(item => item.code === journey.desk)?.name || journey.desk)}</span>`
+                            : ""}
+                        <span>Assigned: ${escapeHTML(formatDate(journey.createdAt))}</span>
+                        ${canWriteJourneys ? `
+                            <form data-journey-update-form data-journey-id="${escapeHTML(journey.id)}">
+                                <label>Current journey stage<select name="stage" required>${journeyState.stages.map(stage => `<option value="${stage.value}" ${journey.stage === stage.value ? "selected" : ""}>${escapeHTML(stage.label)}</option>`).join("")}</select></label>
+                                <label>Operational status<select name="operational_status" required>${journeyState.operationalStatuses.map(status => `<option value="${status.value}" ${journey.operationalStatus === status.value ? "selected" : ""}>${escapeHTML(status.label)}</option>`).join("")}</select></label>
+                                <button type="submit" class="button button-secondary">UPDATE</button>
+                                <p data-journey-update-message role="status" aria-live="polite"></p>
+                            </form>
+                        ` : ""}
+                    </article>
+                `).join("");
         }
     }
 
@@ -8377,10 +8380,7 @@ function renderAdminJourneyPanel(clientId) {
             try {
                 const { data: updatedJourney, error } = await lordblessSupabase
                     .from("client_journeys")
-                    .update({
-                        stage: form.elements.stage.value,
-                        operational_status: form.elements.operational_status.value
-                    })
+                    .update({ stage: form.elements.stage.value, operational_status: form.elements.operational_status.value })
                     .eq("id", form.dataset.journeyId)
                     .eq("client_id", clientId)
                     .select("id")
