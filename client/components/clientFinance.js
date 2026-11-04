@@ -2616,6 +2616,10 @@ function openReceiptViewer(
 
 
     const clientId =
+        receipt.clientCode ||
+        receipt.client_code ||
+        state.client?.clientCode ||
+        state.client?.client_code ||
         receipt.clientId ||
         receipt.client_id ||
         state.client?.id ||

@@ -2635,40 +2635,10 @@ function renderFinanceView(
 
         case "reports":
 
-            loadAdminAssessmentFinanceRequests();
-
-            if (
-                window.LORDBLESS_PAYMENT_HISTORY &&
-                typeof window
-                    .LORDBLESS_PAYMENT_HISTORY
-                    .renderForAdmin ===
-                    "function"
-            ) {
-
-                window.LORDBLESS_PAYMENT_HISTORY
-                    .renderForAdmin(
-                        container,
-                        {}
-                    );
-
+            if (window.LORDBLESS_FINANCIAL_MANAGEMENT?.render) {
+                void window.LORDBLESS_FINANCIAL_MANAGEMENT.render(container);
             } else {
-
-                container.innerHTML = `
-
-                    <div class="empty-state">
-
-                        <h3>
-                            Financial Reports
-                        </h3>
-
-                        <p>
-                            Payment History could not be loaded.
-                        </p>
-
-                    </div>
-
-                `;
-
+                container.innerHTML = `<div class="empty-state"><h3>Financial Management</h3><p>The financial reports workspace could not be loaded.</p></div>`;
             }
 
             break;

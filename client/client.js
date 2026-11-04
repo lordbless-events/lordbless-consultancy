@@ -824,7 +824,10 @@ function mapAssessmentPaymentReceipt(payment) {
         receiptNumber: payment.receipt_number,
         paymentRequestId: payment.id,
         paymentId: payment.id,
-        clientId: payment.client_code || "ID pending",
+        // Keep the UUID for the authenticated-client ownership filter. The
+        // human-readable client code is carried separately for receipt display.
+        clientId: payment.client_id,
+        clientCode: payment.client_code || "ID pending",
         clientName: LORDBLESS_CLIENT_ACCOUNT.fullName || LORDBLESS_CLIENT_ACCOUNT.name || "Client",
         paymentRequestReference: payment.reference,
         description: "Initial Assessment & 30-Minute Consultation",
