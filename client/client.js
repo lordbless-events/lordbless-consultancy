@@ -251,6 +251,7 @@ const LORDBLESS_CLIENT_ACCOUNT = {
     passportExpiryDate: "",
     currentTransactionId: null,
     documents: [],
+    documentRequests: [],
     transactions: []
 };
 
@@ -558,7 +559,8 @@ function applyAuthenticatedClientRecord(client) {
             passportExpiryDate: "",
             currentTransactionId: null,
             transactions: [],
-            documents: []
+            documents: [],
+            documentRequests: []
         }
     );
 
@@ -584,6 +586,7 @@ function mapAuthenticatedClientJourney(journey) {
     return {
         id: journey.id,
         clientId: journey.client_id,
+        enquiryId: journey.enquiry_id || null,
         journeyType: journey.journey_type || "",
         title: journey.title || serviceLabel,
         destination: journey.destination || "",
@@ -611,7 +614,7 @@ async function loadAuthenticatedClientJourneys(clientId) {
 
     const { data, error } = await lordblessSupabase
         .from("client_journeys")
-        .select("id, client_id, journey_type, title, destination, service, stage, operational_status, created_at, updated_at")
+        .select("id, client_id, enquiry_id, journey_type, title, destination, service, stage, operational_status, created_at, updated_at")
         .eq("client_id", clientId)
         .order("created_at", { ascending: true });
 
@@ -638,6 +641,7 @@ async function loadAuthenticatedClientJourneys(clientId) {
 
 async function loadAuthenticatedClientDocuments(clientId) {
     LORDBLESS_CLIENT_ACCOUNT.documents = [];
+    LORDBLESS_CLIENT_ACCOUNT.documentRequests = [];
     clientDocumentLoadError = "";
 
     if (
@@ -651,7 +655,11 @@ async function loadAuthenticatedClientDocuments(clientId) {
     const requestUserId = clientAuthLookupUserId;
 
     try {
-        const rows = await window.LORDBLESS_DATA.getClientDocuments(clientId);
+        const [rows, requestResult] = await Promise.all([
+            window.LORDBLESS_DATA.getClientDocuments(clientId),
+            lordblessSupabase.from("document_requests").select("*").eq("client_id", clientId).order("created_at", { ascending: false })
+        ]);
+        if (requestResult.error) throw requestResult.error;
         if (
             clientId !== LORDBLESS_CLIENT_ACCOUNT.id ||
             requestUserId !== clientAuthLookupUserId
@@ -667,13 +675,47 @@ async function loadAuthenticatedClientDocuments(clientId) {
                 type: item.type || item.document_type || "other",
                 status: item.status || item.review_status || "reviewing",
                 uploadedAt: item.uploadedAt || item.uploaded_at || "",
-                expiryDate: item.expiryDate || item.expiry_date || item.expires_at || ""
+                expiryDate: item.expiryDate || item.valid_until || item.expiry_date || item.expires_at || "",
+                issueDate: item.issueDate || item.valid_from || item.issue_date || null,
+                approvedAt: item.approved_at || null,
+                rejectedAt: item.rejected_at || null,
+                rejectionReason: item.rejection_reason || "",
+                version: item.version || 1,
+                isCurrent: item.is_current !== false,
+                isReusable: item.is_reusable === true,
+                storagePath: item.storage_path || "",
+                documentRequestId: item.document_request_id || null
+            }));
+        LORDBLESS_CLIENT_ACCOUNT.documentRequests = (requestResult.data || [])
+            .filter(item => item.client_id === clientId)
+            .map(item => ({
+                ...item,
+                clientId: item.client_id,
+                enquiryId: item.enquiry_id,
+                requirementId: item.requirement_id || null,
+                documentType: item.document_type,
+                documentName: item.document_name,
+                name: item.document_name,
+                title: item.document_name,
+                type: item.request_type,
+                createdAt: item.created_at,
+                sentAt: item.sent_at,
+                viewedAt: item.viewed_at,
+                completedAt: item.completed_at
             }));
     } catch (error) {
         clientDocumentLoadError = error?.message || String(error);
         console.error("LORDBLESS CLIENT DOCUMENT LOAD ERROR:", error);
     }
 }
+
+window.addEventListener("lordbless:client-document-updated", async event => {
+    const clientId = event.detail?.clientId;
+    if (!clientId || clientId !== LORDBLESS_CLIENT_ACCOUNT.id) return;
+    await loadAuthenticatedClientDocuments(clientId);
+    if (clientId !== LORDBLESS_CLIENT_ACCOUNT.id) return;
+    renderDocuments();
+});
 
 
 function getInitialAssessmentPaymentRequests() {
@@ -2521,7 +2563,9 @@ function renderDocuments() {
             .renderDocumentCentre(
                 container,
                 transaction,
-                documents
+                documents,
+                LORDBLESS_CLIENT_ACCOUNT,
+                LORDBLESS_CLIENT_ACCOUNT.documentRequests
             );
 
         if (clientDocumentLoadError) {

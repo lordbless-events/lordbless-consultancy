@@ -230,7 +230,7 @@ function renderDocumentReview(
 
                                     <strong>
                                         ${escapeDocumentReviewHtml(
-                                            client.id || "—"
+                                            client.clientCode || client.client_code || "ID pending"
                                         )}
                                     </strong>
 
@@ -573,10 +573,6 @@ function approveDocument() {
         null;
 
 
-    document.isCurrent =
-        true;
-
-
     document.reviewHistory =
         Array.isArray(document.reviewHistory)
             ? document.reviewHistory
@@ -616,7 +612,9 @@ function approveDocument() {
 
 
     showDocumentReviewMessage(
-        "Document approved and added to the client's reusable document library."
+        document.isReusable
+            ? "Document approved and added to the client's reusable document library."
+            : "Document approved. It is not reusable while superseded or outside its validity dates."
     );
 
 
@@ -729,11 +727,16 @@ function markDocumentAsReusable(
      * Approved documents are permanent client assets.
      */
 
-    document.isReusable =
-        true;
+    const today = new Date().toISOString().slice(0, 10);
+    const validFrom = document.validFrom || document.valid_from || document.issueDate;
+    const validUntil = document.validUntil || document.valid_until || document.expiryDate;
+    const startsInFuture = validFrom && String(validFrom).slice(0, 10) > today;
+    const alreadyExpired = validUntil && String(validUntil).slice(0, 10) < today;
 
-    document.isCurrent =
-        true;
+    document.isReusable =
+        document.isCurrent !== false &&
+        !startsInFuture &&
+        !alreadyExpired;
 
 }
 

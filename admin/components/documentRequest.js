@@ -16,7 +16,9 @@ const LORDBLESS_DOCUMENT_REQUEST_STATE = {
 
     requirement: null,
 
-    request: null
+    request: null,
+
+    isSubmitting: false
 
 };
 
@@ -114,6 +116,9 @@ function initialiseDocumentRequest(
 
         transactionId:
             transaction?.id || null,
+
+        enquiryId:
+            transaction?.enquiryId || transaction?.enquiry_id || null,
 
         requirementId:
             requirement?.requirementId || null,
@@ -355,7 +360,7 @@ function renderDocumentRequest(
 
                         <strong>
                             ${escapeDocumentRequestHtml(
-                                client?.id || "—"
+                                client?.clientCode || client?.client_code || "ID pending"
                             )}
                         </strong>
 
@@ -654,7 +659,7 @@ function initialiseDocumentRequestActions(
    SEND REQUEST
    ========================================================= */
 
-function sendDocumentRequest() {
+async function sendDocumentRequest() {
 
     const state =
         LORDBLESS_DOCUMENT_REQUEST_STATE;
@@ -667,6 +672,8 @@ function sendDocumentRequest() {
     if (!request) {
         return;
     }
+
+    if (state.isSubmitting) return;
 
 
     const messageElement =
@@ -722,6 +729,62 @@ function sendDocumentRequest() {
         return;
     }
 
+
+    const clientId = String(request.clientId || "");
+    const databaseClient = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientId);
+    if (databaseClient) {
+        if (!request.enquiryId || typeof lordblessSupabase === "undefined") {
+            showDocumentRequestMessage("A valid client enquiry and authenticated Supabase session are required. No request was created.");
+            return;
+        }
+        state.isSubmitting = true;
+        const sendButton = window.document.getElementById("send-document-request");
+        if (sendButton) {
+            sendButton.disabled = true;
+            sendButton.textContent = "Saving request…";
+        }
+        try {
+            const { data, error } = await lordblessSupabase.rpc("create_document_request", {
+                p_client_id: clientId,
+                p_enquiry_id: request.enquiryId,
+                p_requirement_id: request.requirementId || null,
+                p_document_type: request.documentType,
+                p_document_name: request.documentName,
+                p_request_type: request.type,
+                p_message: message,
+                p_email: email,
+                p_portal: portal,
+                p_whatsapp: whatsapp
+            });
+            if (error) throw error;
+            if (!data) throw new Error("Supabase did not confirm the document request.");
+            const persistedRequest = {
+                ...request,
+                id: data,
+                clientId,
+                message,
+                status: "requested",
+                email,
+                portal,
+                whatsapp,
+                createdAt: new Date().toISOString(),
+                sentAt: new Date().toISOString(),
+                databaseRequest: true
+            };
+            dispatchDocumentRequestEvent(persistedRequest);
+            showDocumentRequestMessage("Document request saved and sent to the Client Portal.");
+            closeDocumentRequest();
+        } catch (error) {
+            showDocumentRequestMessage(error?.message || "Unable to save the document request.");
+            if (sendButton) {
+                sendButton.disabled = false;
+                sendButton.textContent = "Send Request";
+            }
+        } finally {
+            state.isSubmitting = false;
+        }
+        return;
+    }
 
     request.message =
         message;

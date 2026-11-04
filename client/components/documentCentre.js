@@ -504,6 +504,9 @@ function findReusableClientDocument(
     const documents =
         clientDocuments.filter(
             document => {
+                const validFrom = document.validFrom || document.valid_from || document.issueDate;
+                const validUntil = document.validUntil || document.valid_until || document.expiryDate;
+                const today = new Date().toISOString().slice(0, 10);
 
                 return (
 
@@ -511,6 +514,12 @@ function findReusableClientDocument(
                     documentType &&
 
                     document.isCurrent !== false &&
+
+                    document.isReusable !== false &&
+
+                    !(validFrom && String(validFrom).slice(0, 10) > today) &&
+
+                    !(validUntil && String(validUntil).slice(0, 10) < today) &&
 
                     document.status ===
                     LORDBLESS_DOCUMENT_STATUS.APPROVED
@@ -828,12 +837,18 @@ const LORDBLESS_DOCUMENT_REQUESTS = {};
    ============================================================ */
 
 function getJourneyDocumentRequests(
-    transaction
+    transaction,
+    persistedRequests = null
 ) {
 
-    if (
-        !transaction
-    ) {
+    if (Array.isArray(persistedRequests)) {
+        const enquiryId = transaction?.enquiryId || transaction?.enquiry_id || null;
+        return persistedRequests.filter(request =>
+            request && (!enquiryId || request.enquiryId === enquiryId)
+        );
+    }
+
+    if (!transaction && !requests.length) {
 
         return [];
 
@@ -932,8 +947,18 @@ function getDocumentRequestStatus(
      * Find the document linked directly to the request.
      */
 
-    let document =
-        null;
+    let document = (request.enquiryId || request.enquiry_id)
+        ? clientDocuments.find(item => item.documentRequestId === request.id || item.document_request_id === request.id) || null
+        : null;
+
+    if ((request.enquiryId || request.enquiry_id) && !document) {
+        const persistedStatus = {
+            uploaded: LORDBLESS_DOCUMENT_REQUEST_STATUS.UPLOADED,
+            approved: LORDBLESS_DOCUMENT_REQUEST_STATUS.APPROVED,
+            rejected: LORDBLESS_DOCUMENT_REQUEST_STATUS.REJECTED
+        }[request.status];
+        return persistedStatus || LORDBLESS_DOCUMENT_REQUEST_STATUS.REQUESTED;
+    }
 
 
     if (
@@ -955,10 +980,7 @@ function getDocumentRequestStatus(
      * try matching by document type.
      */
 
-    if (
-        !document &&
-        request.documentType
-    ) {
+    if (!document && !(request.enquiryId || request.enquiry_id) && request.documentType) {
 
         document =
             findCurrentClientDocument(
@@ -1071,6 +1093,12 @@ function getRequestDocument(
 
     }
 
+
+    if (request.enquiryId || request.enquiry_id) {
+        return clientDocuments.find(document =>
+            document.documentRequestId === request.id || document.document_request_id === request.id
+        ) || null;
+    }
 
     if (
         request.documentId
@@ -1266,7 +1294,9 @@ function getDocumentRequestSummary(
 function renderDocumentCentre(
     container,
     transaction,
-    clientDocuments = []
+    clientDocuments = [],
+    client = null,
+    persistedRequests = null
 ) {
 
     if (
@@ -1288,7 +1318,8 @@ function renderDocumentCentre(
 
     const requests =
         getJourneyDocumentRequests(
-            transaction
+            transaction,
+            persistedRequests
         );
 
 
@@ -1304,6 +1335,13 @@ function renderDocumentCentre(
         <div
             class="document-centre"
         >
+
+            <div class="document-section-heading">
+                <div>
+                    <p class="portal-eyebrow">CLIENT ID</p>
+                    <strong>${escapeDocumentHTML(client?.clientCode || client?.client_code || "ID pending")}</strong>
+                </div>
+            </div>
 
             ${renderJourneyRequestsSection(
                 transaction,
@@ -1327,7 +1365,10 @@ function renderDocumentCentre(
 
     initialiseDocumentCentreActions(
         container,
-        transaction
+        transaction,
+        client,
+        requests,
+        documents
     );
 
 }
@@ -1344,9 +1385,7 @@ function renderJourneyRequestsSection(
     summary
 ) {
 
-    if (
-        !transaction
-    ) {
+    if (!transaction && !requests.length) {
 
         return `
 
@@ -1380,9 +1419,9 @@ function renderJourneyRequestsSection(
 
 
     const journeyTitle =
-        transaction.title ||
-        transaction.service ||
-        "Current Journey";
+        transaction?.title ||
+        transaction?.service ||
+        (requests.length ? "Documents for your account" : "Current Journey");
 
 
     if (
@@ -1783,6 +1822,7 @@ function renderDocumentRequestItem(
 
 
     const description =
+        (status === LORDBLESS_DOCUMENT_REQUEST_STATUS.REJECTED && document?.rejectionReason) ||
         request.message ||
         request.description ||
         (
@@ -2260,7 +2300,18 @@ function createEmptyDocumentLibrary() {
 
 function renderUniversalUploadSection() {
 
-    return "";
+    return `
+        <section class="document-request-section">
+            <div class="document-section-heading">
+                <div>
+                    <p class="portal-eyebrow">DOCUMENT LIBRARY</p>
+                    <h3>Add a document</h3>
+                    <p>Upload a document for your permanent client library.</p>
+                </div>
+                <button type="button" class="primary-button" data-universal-upload>Upload Document</button>
+            </div>
+        </section>
+    `;
 
 }
 
@@ -2269,7 +2320,9 @@ function renderUniversalUploadSection() {
    DOCUMENT UPLOAD DIALOG
    ============================================================ */
 function openUniversalUploadDialog(
-    request = null
+    request = null,
+    client = null,
+    existingDocuments = []
 ) {
 
     const existing =
@@ -2294,21 +2347,16 @@ function openUniversalUploadDialog(
             : "";
 
 
-    const requestedName =
-        request &&
-        (
-            request.title ||
-            request.name
-        )
-            ? (
-                request.title ||
-                request.name
-            )
-            : "";
+    const requestedName = request?.documentName || request?.title || request?.name || "";
 
 
+    const knownDocumentTypes = LORDBLESS_DOCUMENT_TYPES.some(item => item.id === requestedType)
+        ? LORDBLESS_DOCUMENT_TYPES
+        : request && requestedType
+            ? [...LORDBLESS_DOCUMENT_TYPES, { id: requestedType, name: requestedName || requestedType }]
+            : LORDBLESS_DOCUMENT_TYPES;
     const options =
-        LORDBLESS_DOCUMENT_TYPES
+        knownDocumentTypes
             .map(
                 documentType => {
 
@@ -2499,7 +2547,7 @@ function openUniversalUploadDialog(
                         id="document-file-input"
                         name="file"
                         required
-                        accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                    accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx"
                     >
 
                 </div>
@@ -2508,10 +2556,12 @@ function openUniversalUploadDialog(
                 <small
                     class="document-upload-field-hint"
                 >
-                    PDF, JPG, PNG, DOC or DOCX
+                    PDF, JPG, PNG, WEBP, DOC, DOCX, XLS or XLSX · Maximum 15 MB
                 </small>
 
             </div>
+
+            <p id="document-upload-message" role="status" aria-live="polite"></p>
 
 
             <div
@@ -2529,6 +2579,7 @@ function openUniversalUploadDialog(
                     id="document-type-select"
                     name="documentType"
                     required
+                    ${request ? "disabled" : ""}
                 >
 
                     <option
@@ -2613,10 +2664,7 @@ function openUniversalUploadDialog(
         dialog
     );
 
-    initialiseUploadDialog(
-        dialog,
-        request
-    );
+    initialiseUploadDialog(dialog, request, client, existingDocuments);
 
 }
 
@@ -2627,7 +2675,9 @@ function openUniversalUploadDialog(
 
 function initialiseUploadDialog(
     dialog,
-    request
+    request,
+    client,
+    existingDocuments
 ) {
 
     const typeSelect =
@@ -2749,7 +2799,9 @@ function initialiseUploadDialog(
 
                 handleUniversalUpload(
                     form,
-                    request
+                    request,
+                    client,
+                    existingDocuments
                 );
 
             }
@@ -2764,9 +2816,11 @@ function initialiseUploadDialog(
    UNIVERSAL UPLOAD HANDLER
    ============================================================ */
 
-function handleUniversalUpload(
+async function handleUniversalUpload(
     form,
-    request
+    request,
+    client,
+    existingDocuments = []
 ) {
 
     const fileInput =
@@ -2851,9 +2905,103 @@ function handleUniversalUpload(
 
 
     const documentName =
-        documentType === "other"
+        request?.documentName || (documentType === "other"
             ? otherInput.value.trim()
-            : selectedDefinition.name;
+            : selectedDefinition?.name || "");
+
+    const clientId = String(client?.id || "");
+    const isDatabaseClient = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientId);
+    if (isDatabaseClient) {
+        const message = form.querySelector("#document-upload-message");
+        const submit = form.querySelector('[type="submit"]');
+        const setMessage = value => { if (message) message.textContent = value; };
+        const acceptedTypes = new Map([
+            [".pdf", "application/pdf"], [".jpg", "image/jpeg"], [".jpeg", "image/jpeg"],
+            [".png", "image/png"], [".webp", "image/webp"], [".doc", "application/msword"],
+            [".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+            [".xls", "application/vnd.ms-excel"], [".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"]
+        ]);
+        const extension = `.${String(file.name).split(".").pop()}`.toLowerCase();
+        const expectedMime = acceptedTypes.get(extension);
+        const fileMime = file.type || expectedMime;
+        if (!expectedMime || fileMime !== expectedMime) {
+            setMessage("This file type is not supported. Use PDF, JPG, PNG, WEBP, DOC, DOCX, XLS or XLSX.");
+            return;
+        }
+        if (file.size <= 0 || file.size > 15 * 1024 * 1024) {
+            setMessage("Choose a file smaller than 15 MB.");
+            return;
+        }
+        if (request && String(request.documentType) !== documentType) {
+            setMessage("The selected document type does not match this request.");
+            return;
+        }
+        if (typeof lordblessSupabase === "undefined" || !window.crypto?.randomUUID) {
+            setMessage("Secure upload is unavailable in this browser session. No file was uploaded.");
+            return;
+        }
+
+        const documentId = window.crypto.randomUUID();
+        const fileToken = window.crypto.randomUUID();
+        const storagePath = `${clientId}/${documentId}/${fileToken}`;
+        const safeFileName = String(file.name).replace(/[\\/\u0000-\u001f\u007f]/g, "_").trim();
+        if (!safeFileName || safeFileName.length > 255) {
+            setMessage("The filename is invalid or too long.");
+            return;
+        }
+
+        if (submit) {
+            submit.disabled = true;
+            submit.textContent = "Uploading…";
+        }
+        setMessage("Uploading securely…");
+        let uploadedPath = "";
+        try {
+            const { data: uploaded, error: uploadError } = await lordblessSupabase.storage
+                .from("lordbless-client-documents")
+                .upload(storagePath, file, { contentType: fileMime, upsert: false });
+            if (uploadError) throw uploadError;
+            uploadedPath = uploaded?.path || storagePath;
+
+            setMessage("Saving document record…");
+            const { data, error } = await lordblessSupabase.rpc("finalize_client_document_upload", {
+                p_client_id: clientId,
+                p_document_id: documentId,
+                p_document_request_id: request?.id || null,
+                p_document_type: documentType,
+                p_document_name: documentName,
+                p_file_name: safeFileName,
+                p_storage_path: uploadedPath
+            });
+            if (error) throw error;
+            if (data !== documentId) throw new Error("Supabase did not confirm the document record.");
+
+            setMessage("Upload complete. Refreshing your document list…");
+            window.dispatchEvent(new CustomEvent("lordbless:client-document-updated", { detail: { clientId } }));
+            document.getElementById("document-upload-dialog")?.remove();
+            showDocumentMessage(`${documentName} was uploaded and submitted for review.`);
+        } catch (error) {
+            if (uploadedPath) {
+                const { error: cleanupError } = await lordblessSupabase.storage
+                    .from("lordbless-client-documents")
+                    .remove([uploadedPath]);
+                if (cleanupError) {
+                    setMessage(`Upload metadata failed. The file remains unregistered for safe recovery (${uploadedPath}). ${error?.message || ""}`);
+                    if (submit) {
+                        submit.disabled = false;
+                        submit.textContent = "Retry Upload";
+                    }
+                    return;
+                }
+            }
+            setMessage(error?.message || "The document could not be uploaded. No submitted status was saved.");
+            if (submit) {
+                submit.disabled = false;
+                submit.textContent = "Retry Upload";
+            }
+        }
+        return;
+    }
 
     const localDevelopment = window.location.protocol === "file:" ||
         ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
@@ -2939,7 +3087,10 @@ function handleUniversalUpload(
 
 function initialiseDocumentCentreActions(
     container,
-    transaction
+    transaction,
+    client,
+    requests,
+    documents
 ) {
 
     /*
@@ -2957,7 +3108,7 @@ function initialiseDocumentCentreActions(
                     "click",
                     () => {
 
-                        openUniversalUploadDialog();
+                        openUniversalUploadDialog(null, client, documents);
 
                     }
                 );
@@ -2985,14 +3136,8 @@ function initialiseDocumentCentreActions(
                             button.dataset.requestId;
 
 
-                        const requests =
-                            getJourneyDocumentRequests(
-                                transaction
-                            );
-
-
                         const request =
-                            requests.find(
+                            (requests || []).find(
                                 item =>
                                     item.id ===
                                     requestId
@@ -3004,7 +3149,9 @@ function initialiseDocumentCentreActions(
                         ) {
 
                             openUniversalUploadDialog(
-                                request
+                                request,
+                                client,
+                                documents
                             );
 
                         }
@@ -3095,8 +3242,9 @@ function initialiseDocumentCentreActions(
 
                         openUniversalUploadDialog({
 
-                            id:
-                                `REPLACE-${button.dataset.documentReplace}`,
+                            id: null,
+                            isReplacement: true,
+                            documentName: document?.name || "Document Replacement",
 
                             documentType:
                                 document?.type ||
@@ -3106,7 +3254,7 @@ function initialiseDocumentCentreActions(
                                 document?.name ||
                                 "Document Replacement"
 
-                        });
+                        }, window.LORDBLESS_CLIENT_ACCOUNT, window.LORDBLESS_CLIENT_ACCOUNT?.documents || []);
 
                     }
                 );
@@ -3197,11 +3345,28 @@ function showDocumentDetails(
     }
 
 
-    showDocumentMessage(
-        details.join(
-            "\n"
-        )
-    );
+    if (!document.storagePath || typeof lordblessSupabase === "undefined") {
+        showDocumentMessage(details.join("\n"));
+        return;
+    }
+
+    const preview = window.open("about:blank", "_blank");
+    if (!preview) {
+        showDocumentMessage("Allow pop-ups to open this private document.");
+        return;
+    }
+    preview.opener = null;
+    preview.document.write("<title>Opening secure document</title><p>Opening secure document…</p>");
+    lordblessSupabase.storage.from("lordbless-client-documents")
+        .createSignedUrl(document.storagePath, 300)
+        .then(({ data, error }) => {
+            if (error || !data?.signedUrl) throw error || new Error("A secure preview link was not created.");
+            preview.location.replace(data.signedUrl);
+        })
+        .catch(error => {
+            preview.close();
+            showDocumentMessage(error?.message || "The private document could not be opened.");
+        });
 
 }
 

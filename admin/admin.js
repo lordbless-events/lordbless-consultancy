@@ -966,6 +966,14 @@ function setupAdminDocumentRequestEvents() {
                 return;
             }
 
+            if (request.databaseRequest) {
+                state.adminDocumentsLoadedForUser = null;
+                void loadAdminDocumentRecords().then(() => {
+                    if (state.currentView === "documents") renderAdminDocuments();
+                });
+                return;
+            }
+
 
             const requests =
                 LORDBLESS_ADMIN_DOCUMENT_DATA.requests;
@@ -3192,6 +3200,11 @@ function canCurrentAdminAccessJourney(
         return true;
     }
 
+    if (document.databaseDocument === true) {
+        // The database query is already restricted by the document RLS policy.
+        return true;
+    }
+
     if (journey.isSupabase === true) {
         // These rows have already been scoped by the database RLS policy.
         return true;
@@ -3492,6 +3505,7 @@ async function loadAdminDocumentRecords() {
                 id: row.id,
                 clientId: row.client_id,
                 clientName: client?.name || row.client_name || "Client",
+                clientCode: client?.clientCode || client?.client_code || row.client_code || "ID pending",
                 type: row.document_type || row.type || "other",
                 name: row.document_name || row.name || row.title || row.document_type || "Document",
                 filename: row.file_name || row.original_filename || row.filename || "",
@@ -3517,6 +3531,7 @@ async function loadAdminDocumentRecords() {
                 id: row.id,
                 clientId: row.client_id,
                 clientName: client?.name || "Client",
+                clientCode: client?.clientCode || client?.client_code || row.client_code || "ID pending",
                 transactionId: row.journey_id || row.client_journey_id || null,
                 transactionTitle: journey?.title || "",
                 documentNames: Array.isArray(row.document_names) ? row.document_names : [requestedName],
@@ -4771,6 +4786,11 @@ function canCurrentAdminAccessDocumentRequest(
         return true;
     }
 
+    if (request.databaseRequest === true) {
+        // The database query is already restricted by the request RLS policy.
+        return true;
+    }
+
     if (request.transactionId) {
 
         const journey =
@@ -5036,7 +5056,7 @@ async function renderAdminDocuments() {
                             type="button"
                             id="admin-create-document-request"
                             class="lbc-document-btn lbc-document-btn-primary"
-                            ${isAdminDocumentLocalDevelopment() ? "" : "disabled title=\"No authorized database-backed creation workflow is configured\""}
+                            ${hasPermission(getCurrentUser(), "documents.review") ? "" : "disabled title=\"Document review permission is required\""}
                         >
                             + Request Document
                         </button>
@@ -5316,7 +5336,7 @@ function renderAdminDocumentReviewTable(documents) {
                                     ${escapeHTML(document.clientName || "Unknown client")}
                                 </div>
                                 <div class="lbc-document-secondary">
-                                    ${escapeHTML(document.clientId || "—")}
+                                    ${escapeHTML(document.clientCode || "ID pending")}
                                 </div>
                             </td>
                             <td>
@@ -5427,7 +5447,7 @@ function renderAdminDocumentLibraryTable(documents) {
                                         ${escapeHTML(document.clientName || "Unknown client")}
                                     </div>
                                     <div class="lbc-document-secondary">
-                                        ${escapeHTML(document.clientId || "—")}
+                                        ${escapeHTML(document.clientCode || "ID pending")}
                                     </div>
                                 </td>
 
@@ -5495,7 +5515,7 @@ function renderAdminDocumentRequests(requests) {
                                 ${escapeHTML(request.documentNames?.join(", ") || "Document Request")}
                             </div>
                             <div class="lbc-document-request-client">
-                                ${escapeHTML(request.clientName || request.clientId || "Unknown client")}
+                                ${escapeHTML(request.clientName || "Unknown client")} · ${escapeHTML(request.clientCode || "ID pending")}
                             </div>
                         </div>
 
@@ -5589,7 +5609,7 @@ function renderAdminClientDocumentTable(clients, documents) {
                                     ${escapeHTML(client.name || client.fullName || client.id)}
                                 </div>
                                 <div class="lbc-document-secondary">
-                                    ${escapeHTML(client.id)}
+                                    ${escapeHTML(getAdminClientDisplayId(client))}
                                 </div>
                             </td>
 
@@ -5866,48 +5886,7 @@ function openAdminDocumentReview(documentId) {
         );
 
     if (selected.databaseDocument) {
-        modalContent.innerHTML = `
-            <div class="lbc-document-modal-content">
-                <h3>${escapeHTML(selected.name || "Document")}</h3>
-                <div class="lbc-client-document-meta"><strong>Client</strong><span>${escapeHTML(client?.name || selected.clientName || "—")}</span></div>
-                <div class="lbc-client-document-meta"><strong>File name</strong><span>${escapeHTML(selected.filename || "Not available")}</span></div>
-                <div class="lbc-client-document-meta"><strong>Status</strong><span>${escapeHTML(getAdminDocumentStatusLabel(selected.status))}</span></div>
-                <div class="lbc-client-document-meta"><strong>Uploaded</strong><span>${escapeHTML(formatDate(selected.uploadedAt))}</span></div>
-                <p>Private file preview and download are unavailable until the production Storage bucket and its access policies are confirmed.</p>
-                ${hasPermission(getCurrentUser(), "documents.review") ? `
-                    <label>DOCUMENT STATUS
-                        <select data-database-document-status>
-                            ${["uploaded", "reviewing", "approved", "rejected", "expired", "waived"].map(status => `<option value="${status}" ${selected.status === status ? "selected" : ""}>${escapeHTML(getAdminDocumentStatusLabel(status))}</option>`).join("")}
-                        </select>
-                    </label>
-                    <button type="button" class="button button-primary" data-save-database-document-status>Save status</button>
-                    <p data-database-document-message role="status" aria-live="polite"></p>
-                ` : `<p>Document review permission is required to change this status.</p>`}
-            </div>
-        `;
-        modalContent.querySelector("[data-save-database-document-status]")?.addEventListener("click", async event => {
-            const button = event.currentTarget;
-            const nextStatus = modalContent.querySelector("[data-database-document-status]")?.value;
-            const message = modalContent.querySelector("[data-database-document-message]");
-            button.disabled = true;
-            if (message) message.textContent = "Saving review status…";
-            try {
-                const { data, error } = await lordblessSupabase.from("client_documents")
-                .update({ status: nextStatus })
-                .eq("id", selected.id)
-                .eq("client_id", selected.clientId)
-                .select("id, status")
-                .maybeSingle();
-                if (error) throw error;
-                if (!data) throw new Error("The document status change was not confirmed.");
-                state.adminDocumentsLoadedForUser = null;
-                await renderAdminDocuments();
-                if (message) message.textContent = "Document status saved.";
-            } catch (error) {
-                if (message) message.textContent = error?.message || "Unable to save the document status.";
-                button.disabled = false;
-            }
-        });
+        renderDatabaseDocumentReview(selected, client);
         enquiryModal.classList.remove("hidden");
         return;
     }
@@ -5919,13 +5898,12 @@ function openAdminDocumentReview(documentId) {
 
     if (typeof renderDocumentReview === "function") {
 
-        modalContent.innerHTML =
-            renderDocumentReview(
-                modalContent,
-                selected,
-                client,
-                transaction
-            );
+        renderDocumentReview(
+            modalContent,
+            selected,
+            client,
+            transaction
+        );
 
         enquiryModal.classList.remove("hidden");
 
@@ -5978,6 +5956,81 @@ function openAdminDocumentReview(documentId) {
     enquiryModal.classList.remove("hidden");
 }
 
+async function renderDatabaseDocumentReview(selected, client) {
+    const canReview = hasPermission(getCurrentUser(), "documents.review");
+    modalContent.innerHTML = `
+        <div class="lbc-document-modal-content">
+            <h3>${escapeHTML(selected.name || "Document")}</h3>
+            <div class="lbc-client-document-meta"><strong>Client</strong><span>${escapeHTML(client?.name || selected.clientName || "Client")} · ${escapeHTML(selected.clientCode || "ID pending")}</span></div>
+            <div class="lbc-client-document-meta"><strong>File name</strong><span>${escapeHTML(selected.filename || "Not available")}</span></div>
+            <div class="lbc-client-document-meta"><strong>Status</strong><span>${escapeHTML(getAdminDocumentStatusLabel(selected.status))}</span></div>
+            <div class="lbc-client-document-meta"><strong>Uploaded</strong><span>${escapeHTML(formatDate(selected.uploadedAt))}</span></div>
+            ${selected.storage_path ? '<button type="button" class="button" data-open-private-document>Open secure preview</button>' : '<p>No private file is attached to this record.</p>'}
+            ${canReview && ["uploaded", "reviewing"].includes(selected.status) ? '<label for="database-document-review-note">Review note</label><textarea id="database-document-review-note" rows="4" placeholder="A reason is required when rejecting."></textarea><button type="button" class="button button-primary" data-review-document="approved">Approve</button><button type="button" class="button" data-review-document="rejected">Reject</button>' : canReview ? "" : "<p>Document review permission is required to change this status.</p>"}
+            <h4>Review history</h4><div data-document-review-history>Loading history…</div>
+            <p data-database-document-message role="status" aria-live="polite"></p>
+        </div>`;
+    const setMessage = value => {
+        const target = modalContent.querySelector("[data-database-document-message]");
+        if (target) target.textContent = value;
+    };
+    modalContent.querySelector("[data-open-private-document]")?.addEventListener("click", async event => {
+        const button = event.currentTarget;
+        const preview = window.open("about:blank", "_blank");
+        if (!preview) {
+            setMessage("Allow pop-ups to open this private document.");
+            return;
+        }
+        preview.opener = null;
+        button.disabled = true;
+        try {
+            const { data, error } = await lordblessSupabase.storage.from("lordbless-client-documents").createSignedUrl(selected.storage_path, 300);
+            if (error) throw error;
+            if (!data?.signedUrl) throw new Error("Supabase did not return a secure preview link.");
+            preview.location.replace(data.signedUrl);
+            setMessage("Secure preview link expires in five minutes.");
+        } catch (error) {
+            preview.close();
+            setMessage(error?.message || "The private file could not be opened.");
+        } finally {
+            button.disabled = false;
+        }
+    });
+    const historyHost = modalContent.querySelector("[data-document-review-history]");
+    const { data: history, error: historyError } = await lordblessSupabase
+        .from("document_review_history").select("action, note, created_at")
+        .eq("document_id", selected.id).order("created_at", { ascending: false });
+    if (!historyHost || !modalContent.contains(historyHost)) return;
+    historyHost.innerHTML = historyError
+        ? `Review history unavailable: ${escapeHTML(historyError.message)}`
+        : history?.length
+            ? history.map(item => `<p><strong>${escapeHTML(item.action)}</strong> · ${escapeHTML(formatDate(item.created_at))}${item.note ? `<br>${escapeHTML(item.note)}` : ""}</p>`).join("")
+            : "No review history yet.";
+    modalContent.querySelectorAll("[data-review-document]").forEach(button => button.addEventListener("click", async event => {
+        const action = event.currentTarget.dataset.reviewDocument;
+        const note = modalContent.querySelector("#database-document-review-note")?.value || "";
+        if (action === "rejected" && !note.trim()) return setMessage("Enter a reason before rejecting the document.");
+        event.currentTarget.disabled = true;
+        try {
+            const { data, error } = await lordblessSupabase.rpc("review_client_document", {
+                p_document_id: selected.id,
+                p_action: action,
+                p_note: note,
+                p_expected_updated_at: selected.updated_at || selected.updatedAt
+            });
+            if (error) throw error;
+            if (data !== selected.id) throw new Error("Supabase did not confirm the review decision.");
+            state.adminDocumentsLoadedForUser = null;
+            await renderAdminDocuments();
+            const refreshed = getCurrentAdminDocumentRecords().find(item => item.id === selected.id);
+            if (refreshed) await renderDatabaseDocumentReview(refreshed, client);
+        } catch (error) {
+            setMessage(error?.message || "Unable to save the review decision.");
+            event.currentTarget.disabled = false;
+        }
+    }));
+}
+
 
 /* =========================================================
    REQUEST VIEW
@@ -6007,7 +6060,7 @@ function openAdminDocumentRequest(requestId) {
             <div class="lbc-client-document-details">
                 <div class="lbc-client-document-meta">
                     <strong>Client</strong>
-                    <span>${escapeHTML(request.clientName || request.clientId || "—")}</span>
+                                    <span>${escapeHTML(request.clientName || "—")} · ${escapeHTML(request.clientCode || "ID pending")}</span>
                 </div>
                 <div class="lbc-client-document-meta">
                     <strong>Journey</strong>
@@ -6046,9 +6099,8 @@ function openAdminDocumentRequest(requestId) {
 ========================================================= */
 
 function openNewAdminDocumentRequest() {
-
-    if (!isAdminDocumentLocalDevelopment()) {
-        window.alert("Document request creation has no confirmed database-backed write workflow yet. No request was created.");
+    if (!hasPermission(getCurrentUser(), "documents.review")) {
+        window.alert("Document review permission is required to create a request.");
         return;
     }
 
@@ -6090,7 +6142,7 @@ function openNewAdminDocumentRequest() {
        INITIALISE ADMIN DOCUMENT DATA
     ----------------------------------------------------- */
 
-    initialiseAdminDocumentData();
+    if (isAdminDocumentLocalDevelopment()) initialiseAdminDocumentData();
 
 
     /* -----------------------------------------------------
@@ -6453,7 +6505,7 @@ function openNewAdminDocumentRequest() {
                                         client.id
                                     )}
                                     ·
-                                    ${escapeHTML(client.id)}
+                                    ${escapeHTML(getAdminClientDisplayId(client))}
                                 </option>
 
                             `).join("")}
@@ -6461,6 +6513,14 @@ function openNewAdminDocumentRequest() {
                         </select>
 
                     </div>
+
+
+                    ${isAdminDocumentLocalDevelopment() ? "" : `<div class="lbc-form-field">
+                        <label for="admin-request-enquiry">Enquiry</label>
+                        <select id="admin-request-enquiry" name="enquiryId" required disabled>
+                            <option value="">Select client first</option>
+                        </select>
+                    </div>`}
 
 
                     <!-- JOURNEY -->
@@ -6476,7 +6536,7 @@ function openNewAdminDocumentRequest() {
                         <select
                             id="admin-request-journey"
                             name="transactionId"
-                            required
+                            ${isAdminDocumentLocalDevelopment() ? "required" : ""}
                         >
 
                             <option value="">
@@ -6520,6 +6580,19 @@ function openNewAdminDocumentRequest() {
 
                         </select>
 
+                    </div>
+
+
+                    <div class="lbc-form-field" id="admin-request-custom-document-field" hidden>
+                        <label for="admin-request-custom-document-name">Custom document name</label>
+                        <input id="admin-request-custom-document-name" name="customDocumentName" type="text" maxlength="180" autocomplete="off">
+                    </div>
+
+                    <div class="lbc-form-field">
+                        <label for="admin-request-requirement">Existing requirement (optional)</label>
+                        <select id="admin-request-requirement" name="requirementId" disabled>
+                            <option value="">No linked requirement</option>
+                        </select>
                     </div>
 
 
@@ -6624,6 +6697,14 @@ function openNewAdminDocumentRequest() {
             "admin-request-journey"
         );
 
+    const enquirySelect = document.getElementById("admin-request-enquiry");
+    const requirementSelect = document.getElementById("admin-request-requirement");
+    const documentSelect = document.getElementById("admin-request-document");
+    const customDocumentField = document.getElementById("admin-request-custom-document-field");
+    const customDocumentInput = document.getElementById("admin-request-custom-document-name");
+    const enquiriesById = new Map();
+    const requirementsById = new Map();
+
 
     const form =
         document.getElementById(
@@ -6705,6 +6786,62 @@ function openNewAdminDocumentRequest() {
 
     }
 
+    async function populateEnquiryOptions(clientId) {
+        if (!enquirySelect) return;
+        enquirySelect.disabled = true;
+        enquirySelect.innerHTML = '<option value="">Loading enquiries…</option>';
+        enquiriesById.clear();
+        requirementSelect && (requirementSelect.disabled = true);
+        if (!clientId) {
+            enquirySelect.innerHTML = '<option value="">Select client first</option>';
+            return;
+        }
+        try {
+            const { data, error } = await lordblessSupabase.rpc("list_client_document_enquiries", { p_client_id: clientId });
+            if (error) throw error;
+            for (const enquiry of data || []) enquiriesById.set(enquiry.enquiry_id, enquiry);
+            enquirySelect.innerHTML = data?.length
+                ? '<option value="">Select the correct enquiry</option>' + data.map((item, index) => `<option value="${escapeHTML(item.enquiry_id)}">Enquiry ${index + 1} · ${escapeHTML(formatDate(item.created_at))}</option>`).join("")
+                : '<option value="">No enquiry is available for this client</option>';
+            enquirySelect.disabled = !data?.length;
+        } catch (error) {
+            enquirySelect.innerHTML = '<option value="">Unable to load enquiries</option>';
+            const errorBox = document.getElementById("admin-request-setup-error");
+            if (errorBox) {
+                errorBox.textContent = error?.message || "The client's enquiries could not be loaded.";
+                errorBox.hidden = false;
+            }
+        }
+    }
+
+    async function populateRequirementOptions() {
+        if (!requirementSelect) return;
+        const enquiryId = enquirySelect?.value;
+        const documentType = documentSelect?.value;
+        requirementSelect.disabled = true;
+        requirementSelect.innerHTML = '<option value="">No linked requirement</option>';
+        requirementsById.clear();
+        if (!enquiryId || !documentType) return;
+        const { data, error } = await lordblessSupabase
+            .from("enquiry_requirements")
+            .select("id, enquiry_id, document_type, document_name, status, required")
+            .eq("enquiry_id", enquiryId)
+            .eq("document_type", documentType);
+        if (error) {
+            const errorBox = document.getElementById("admin-request-setup-error");
+            if (errorBox) {
+                errorBox.textContent = error.message || "Requirements could not be loaded.";
+                errorBox.hidden = false;
+            }
+            return;
+        }
+        for (const requirement of data || []) requirementsById.set(requirement.id, requirement);
+        if (data?.length) {
+            requirementSelect.innerHTML += data.map(item => `<option value="${escapeHTML(item.id)}">${escapeHTML(item.document_name || item.document_type)}${item.required ? " · Required" : " · Optional"}</option>`).join("");
+            requirementSelect.disabled = false;
+        }
+    }
+
 
     /* -----------------------------------------------------
        CLIENT CHANGE
@@ -6715,15 +6852,22 @@ function openNewAdminDocumentRequest() {
         clientSelect.addEventListener(
             "change",
             event => {
-
                 populateJourneyOptions(
                     event.target.value
                 );
-
+                void populateEnquiryOptions(event.target.value);
             }
         );
 
     }
+
+    enquirySelect?.addEventListener("change", () => void populateRequirementOptions());
+    documentSelect?.addEventListener("change", () => {
+        const isCustom = documentSelect.value === "other_supporting_document";
+        if (customDocumentField) customDocumentField.hidden = !isCustom;
+        if (customDocumentInput) customDocumentInput.required = isCustom;
+        void populateRequirementOptions();
+    });
 
 
     /* -----------------------------------------------------
@@ -6748,7 +6892,7 @@ function openNewAdminDocumentRequest() {
 
         form.addEventListener(
             "submit",
-            event => {
+            async event => {
 
                 event.preventDefault();
 
@@ -6794,6 +6938,10 @@ function openNewAdminDocumentRequest() {
                         "missing"
                     );
 
+                const enquiryId = String(formData.get("enquiryId") || "");
+                const requirementId = String(formData.get("requirementId") || "") || null;
+                const customDocumentName = String(formData.get("customDocumentName") || "").trim();
+
 
                 const client =
                     clients.find(
@@ -6822,6 +6970,13 @@ function openNewAdminDocumentRequest() {
                             documentType
                     );
 
+                const selectedEnquiry = enquiriesById.get(enquiryId);
+                const requiresEnquiry = !isAdminDocumentLocalDevelopment() && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientId);
+                const selectedRequirement = requirementId ? requirementsById.get(requirementId) : null;
+                const documentName = documentType === "other_supporting_document"
+                    ? customDocumentName
+                    : catalogueItem?.[1] || "";
+
 
                 /* -----------------------------------------
                    VALIDATION
@@ -6829,8 +6984,11 @@ function openNewAdminDocumentRequest() {
 
                 if (
                     !client ||
-                    !journey ||
-                    !catalogueItem
+                    (requiresEnquiry && !selectedEnquiry) ||
+                    (isAdminDocumentLocalDevelopment() && !journey) ||
+                    !catalogueItem ||
+                    !documentName ||
+                    (requirementId && !selectedRequirement)
                 ) {
 
                     const errorBox =
@@ -6842,7 +7000,7 @@ function openNewAdminDocumentRequest() {
                     if (errorBox) {
 
                         errorBox.textContent =
-                            "Please select a client, journey and document before continuing.";
+                        "Select a valid client and enquiry, and choose a document. Select a journey in local mock mode. Enter the custom document name when requested.";
 
                         errorBox.hidden =
                             false;
@@ -6865,30 +7023,12 @@ function openNewAdminDocumentRequest() {
                 ----------------------------------------- */
 
                 const requirement = {
-
-                    requirementId:
-                        `REQ-${documentType}-${Date.now()}`,
-
-                    documentType:
-                        catalogueItem[0],
-
-                    name:
-                        catalogueItem[1],
-
-                    status:
-                        requestType ===
-                        "expired"
-
-                            ? "expired"
-
-                            : requestType ===
-                              "replacement"
-
-                                ? "rejected"
-
-                                : "required"
-
+                    requirementId: selectedRequirement?.id || null,
+                    documentType: catalogueItem[0],
+                    name: documentName,
+                    status: selectedRequirement?.status || "required"
                 };
+                const requestJourney = { ...(journey || {}), enquiryId: enquiryId || null };
 
 
                 /* -----------------------------------------
@@ -6936,8 +7076,8 @@ function openNewAdminDocumentRequest() {
                                     ·
 
                                     ${escapeHTML(
-                                        journey.title ||
-                                        journey.id
+                                        requestJourney.title ||
+                                        requestJourney.id
                                     )}
 
                                 </p>
@@ -6977,7 +7117,7 @@ function openNewAdminDocumentRequest() {
                     .render(
                         container,
                         client,
-                        journey,
+                        requestJourney,
                         requirement,
                         requestType
                     );
