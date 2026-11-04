@@ -38,7 +38,7 @@ begin
     for status_constraint in
         select * from (values
             ('client_documents', 'status', array['reviewing','approved','rejected']::text[]),
-            ('document_requests', 'status', array['requested','viewed','uploaded','approved','rejected']::text[]),
+            ('document_requests', 'status', array['draft','requested','viewed','uploaded','completed','cancelled']::text[]),
             ('enquiry_requirements', 'status', array['required','satisfied']::text[]),
             ('document_review_history', 'action', array['approved','rejected']::text[])
         ) as required_status(table_name, column_name, values_required)
@@ -273,6 +273,37 @@ using (
     )
 );
 
+-- Mark only this authenticated client's pending requests as viewed. The
+-- browser cannot write staff-controlled request fields directly.
+create or replace function public.mark_client_document_requests_viewed()
+returns integer
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+    active_client_id uuid;
+    changed_count integer;
+begin
+    active_client_id := private.current_client_id();
+    if auth.uid() is null or active_client_id is null then
+        raise exception 'An active client session is required.' using errcode = '42501';
+    end if;
+
+    update public.document_requests
+    set status = 'viewed',
+        viewed_at = coalesce(viewed_at, now())
+    where client_id = active_client_id
+      and status = 'requested';
+
+    get diagnostics changed_count = row_count;
+    return changed_count;
+end;
+$$;
+
+revoke all on function public.mark_client_document_requests_viewed() from public, anon;
+grant execute on function public.mark_client_document_requests_viewed() to authenticated;
+
 create or replace function public.list_client_document_enquiries(p_client_id uuid)
 returns table (enquiry_id uuid, created_at timestamptz)
 language plpgsql
@@ -426,7 +457,7 @@ begin
 
         if not found
            or request_record.document_type <> p_document_type
-           or request_record.status not in ('requested', 'viewed', 'rejected') then
+           or request_record.status not in ('requested', 'viewed') then
             raise exception 'This document request is unavailable or no longer accepts uploads.' using errcode = '42501';
         end if;
     end if;
@@ -550,7 +581,7 @@ begin
 
     if document_record.document_request_id is not null then
         update public.document_requests
-        set status = p_action,
+        set status = case when p_action = 'approved' then 'completed' else 'requested' end,
             completed_at = case when p_action = 'approved' then now() else null end
         where id = document_record.document_request_id;
     end if;
@@ -581,6 +612,7 @@ grant execute on function public.review_client_document(uuid, text, text, timest
 -- select schemaname, tablename, policyname, cmd from pg_policies where schemaname = 'public' and tablename in ('client_documents','document_requests','document_review_history','enquiry_requirements') order by tablename, policyname;
 -- select column_name, data_type from information_schema.columns where table_schema = 'public' and table_name in ('client_documents','document_requests','document_review_history','enquiry_requirements') order by table_name, ordinal_position;
 -- select p.proname, pg_get_function_arguments(p.oid) as arguments, p.prorettype::regtype as returns from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname in ('list_client_document_enquiries','create_document_request','finalize_client_document_upload','review_client_document') order by p.proname;
+-- select p.proname, pg_get_function_arguments(p.oid) as arguments, p.prorettype::regtype as returns from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'mark_client_document_requests_viewed';
 -- select table_name, column_name, udt_name, is_nullable from information_schema.columns where table_schema = 'public' and ((table_name = 'client_documents' and column_name = 'document_request_id') or (table_name = 'document_review_history' and column_name in ('reviewed_by','enquiry_id')));
 
 commit;

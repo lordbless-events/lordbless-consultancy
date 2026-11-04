@@ -59,7 +59,7 @@ const LORDBLESS_DOCUMENT_STATUS = {
         "superseded",
 
     WAIVED:
-        "waived"
+        "waived",
 
 };
 
@@ -76,6 +76,9 @@ const LORDBLESS_DOCUMENT_REQUEST_STATUS = {
     UPLOADED:
         "uploaded",
 
+    VIEWED:
+        "viewed",
+
     UNDER_REVIEW:
         "under_review",
 
@@ -89,7 +92,10 @@ const LORDBLESS_DOCUMENT_REQUEST_STATUS = {
         "expired",
 
     WAIVED:
-        "waived"
+        "waived",
+
+    CANCELLED:
+        "cancelled"
 
 };
 
@@ -942,6 +948,14 @@ function getDocumentRequestStatus(
 
     }
 
+    if (request.status === LORDBLESS_DOCUMENT_REQUEST_STATUS.CANCELLED) {
+        return LORDBLESS_DOCUMENT_REQUEST_STATUS.CANCELLED;
+    }
+
+    if (request.status === "completed") {
+        return LORDBLESS_DOCUMENT_REQUEST_STATUS.APPROVED;
+    }
+
 
     /*
      * Find the document linked directly to the request.
@@ -954,8 +968,9 @@ function getDocumentRequestStatus(
     if ((request.enquiryId || request.enquiry_id) && !document) {
         const persistedStatus = {
             uploaded: LORDBLESS_DOCUMENT_REQUEST_STATUS.UPLOADED,
-            approved: LORDBLESS_DOCUMENT_REQUEST_STATUS.APPROVED,
-            rejected: LORDBLESS_DOCUMENT_REQUEST_STATUS.REJECTED
+            viewed: LORDBLESS_DOCUMENT_REQUEST_STATUS.VIEWED,
+            completed: LORDBLESS_DOCUMENT_REQUEST_STATUS.APPROVED,
+            cancelled: LORDBLESS_DOCUMENT_REQUEST_STATUS.CANCELLED
         }[request.status];
         return persistedStatus || LORDBLESS_DOCUMENT_REQUEST_STATUS.REQUESTED;
     }
@@ -1724,6 +1739,36 @@ function renderDocumentRequestItem(
         icon = "↑";
         statusLabel = "SUBMITTED";
         statusClass = "uploaded";
+
+    }
+
+
+    else if (
+        status ===
+        LORDBLESS_DOCUMENT_REQUEST_STATUS.VIEWED
+    ) {
+
+        icon = "!";
+        statusLabel = "VIEWED";
+        statusClass = "requested";
+        action = `
+            <button type="button" class="primary-button document-request-upload"
+                data-request-id="${escapeDocumentHTML(request.id)}"
+                data-document-type="${escapeDocumentHTML(request.documentType || "other")}">
+                Upload Document
+            </button>`;
+
+    }
+
+
+    else if (
+        status ===
+        LORDBLESS_DOCUMENT_REQUEST_STATUS.CANCELLED
+    ) {
+
+        icon = "—";
+        statusLabel = "CANCELLED";
+        statusClass = "waived";
 
     }
 

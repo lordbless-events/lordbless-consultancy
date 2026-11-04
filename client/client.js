@@ -538,6 +538,8 @@ let clientAuthLookupUserId = null;
 let clientAuthResolvedUserId = null;
 let clientJourneyLoadError = "";
 let clientDocumentLoadError = "";
+let clientDocumentViewRequestKey = "";
+let clientDocumentViewRequestPromise = null;
 let clientApplicationJourneyId = null;
 
 
@@ -642,6 +644,7 @@ async function loadAuthenticatedClientJourneys(clientId) {
 async function loadAuthenticatedClientDocuments(clientId) {
     LORDBLESS_CLIENT_ACCOUNT.documents = [];
     LORDBLESS_CLIENT_ACCOUNT.documentRequests = [];
+    clientDocumentViewRequestKey = "";
     clientDocumentLoadError = "";
 
     if (
@@ -707,6 +710,37 @@ async function loadAuthenticatedClientDocuments(clientId) {
         clientDocumentLoadError = error?.message || String(error);
         console.error("LORDBLESS CLIENT DOCUMENT LOAD ERROR:", error);
     }
+}
+
+async function markVisibleClientDocumentRequestsAsViewed() {
+    const clientId = String(LORDBLESS_CLIENT_ACCOUNT.id || "");
+    const requests = Array.isArray(LORDBLESS_CLIENT_ACCOUNT.documentRequests)
+        ? LORDBLESS_CLIENT_ACCOUNT.documentRequests
+        : [];
+    const requested = requests.filter(request => request?.status === "requested");
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientId) || !requested.length) return;
+
+    const requestKey = `${clientId}:${requested.map(request => request.id).sort().join(",")}`;
+    if (requestKey === clientDocumentViewRequestKey || clientDocumentViewRequestPromise) return;
+    clientDocumentViewRequestKey = requestKey;
+    clientDocumentViewRequestPromise = (async () => {
+        try {
+            const { error } = await lordblessSupabase.rpc("mark_client_document_requests_viewed");
+            if (error) throw error;
+            if (clientId !== LORDBLESS_CLIENT_ACCOUNT.id) return;
+            await loadAuthenticatedClientDocuments(clientId);
+            if (clientId === LORDBLESS_CLIENT_ACCOUNT.id) renderDocuments();
+        } catch (error) {
+            console.error("LORDBLESS DOCUMENT REQUEST VIEW STATUS ERROR:", error);
+            const container = document.getElementById("document-centre-container");
+            if (container && !container.querySelector("[data-document-view-status-error]")) {
+                container.insertAdjacentHTML("afterbegin", `<p data-document-view-status-error role="alert">Document requests are visible, but their viewed status could not be saved. ${escapeHTML(error?.message || "Please try again later.")}</p>`);
+            }
+        } finally {
+            clientDocumentViewRequestPromise = null;
+        }
+    })();
+    await clientDocumentViewRequestPromise;
 }
 
 window.addEventListener("lordbless:client-document-updated", async event => {
@@ -2574,6 +2608,8 @@ function renderDocuments() {
                 `<p class="client-onboarding-lock-message" role="alert">Document records could not be loaded, so counts are unavailable. ${escapeHTML(clientDocumentLoadError)}</p>`
             );
         }
+
+        void markVisibleClientDocumentRequestsAsViewed();
 
         return;
 
