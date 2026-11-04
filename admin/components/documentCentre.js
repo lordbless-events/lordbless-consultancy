@@ -385,7 +385,7 @@ const LORDBLESS_DOCUMENT_TYPES = [
 
     }
 
-];
+].sort((left, right) => left.name.localeCompare(right.name, "en", { sensitivity: "base" }));
 
 
 /* ============================================================

@@ -391,7 +391,7 @@ const LORDBLESS_DOCUMENT_TYPES = [
 
     }
 
-];
+].sort((left, right) => left.name.localeCompare(right.name, "en", { sensitivity: "base" }));
 
 
 /* ============================================================
@@ -1470,12 +1470,6 @@ function renderJourneyRequestsSection(
                             )}
                         </h3>
 
-                        <p>
-                            ${escapeDocumentHTML(
-                                transaction.id || ""
-                            )}
-                        </p>
-
                     </div>
 
                 </div>
@@ -2182,14 +2176,7 @@ function createPermanentDocumentCard(
 
                 <div>
 
-                    <span
-                        class="transaction-reference"
-                    >
-                        ${escapeDocumentHTML(
-                            document.id ||
-                            "DOCUMENT"
-                        )}
-                    </span>
+                    ${document.version ? `<span class="transaction-reference">Version ${escapeDocumentHTML(document.version)}</span>` : ""}
 
                     <h3>
                         ${escapeDocumentHTML(
@@ -2402,6 +2389,8 @@ function openUniversalUploadDialog(
             : LORDBLESS_DOCUMENT_TYPES;
     const options =
         knownDocumentTypes
+            .slice()
+            .sort((left, right) => left.name.localeCompare(right.name, "en", { sensitivity: "base" }))
             .map(
                 documentType => {
 
@@ -3341,11 +3330,6 @@ function showDocumentDetails(
         `Document: ${
             document.name ||
             definition.name
-        }`,
-
-        `Reference: ${
-            document.id ||
-            "N/A"
         }`,
 
         `Type: ${

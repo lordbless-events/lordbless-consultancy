@@ -6432,7 +6432,7 @@ function openNewAdminDocumentRequest() {
             "Other Supporting Document"
         ]
 
-    ];
+    ].sort((left, right) => left[1].localeCompare(right[1], "en", { sensitivity: "base" }));
 
 
     /* -----------------------------------------------------

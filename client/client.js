@@ -2072,13 +2072,13 @@ function renderDashboard() {
 
     setText(
         "document-count",
-        clientDocumentLoadError ? "—" : documents.length
+        clientDocumentLoadError ? "—" : getUploadedDocumentCount(documents)
     );
 
 
     setText(
         "pending-actions-count",
-        getPendingActionCount()
+        clientDocumentLoadError ? "—" : getPendingActionCount()
     );
 
 
@@ -2193,26 +2193,52 @@ function renderDocumentSummary() {
 
 
     setText(
-        "document-total-count",
-        clientDocumentLoadError ? "—" : documents.length
+        "documents-total-count",
+        clientDocumentLoadError ? "—" : getUploadedDocumentCount(documents)
     );
 
 
     setText(
-        "document-approved-count",
+        "documents-approved-count",
         clientDocumentLoadError ? "—" : approved
     );
 
 
     setText(
-        "document-review-count",
+        "documents-review-count",
         clientDocumentLoadError ? "—" : reviewing
     );
 
 
     setText(
-        "document-attention-count",
+        "documents-action-count",
         clientDocumentLoadError ? "—" : attention
+    );
+
+    setText(
+        "documents-request-count",
+        clientDocumentLoadError ? "—" : getOutstandingDocumentRequests().length
+    );
+
+}
+
+
+function getUploadedDocumentCount(documents = LORDBLESS_CLIENT_ACCOUNT.documents || []) {
+    return documents.filter(documentItem => Boolean(
+        documentItem.filename ||
+        documentItem.file_name ||
+        documentItem.storagePath ||
+        documentItem.storage_path
+    )).length;
+}
+
+
+function getOutstandingDocumentRequests() {
+    const requests = Array.isArray(LORDBLESS_CLIENT_ACCOUNT.documentRequests)
+        ? LORDBLESS_CLIENT_ACCOUNT.documentRequests
+        : [];
+    return requests.filter(request =>
+        ["requested", "viewed", "rejected"].includes(String(request?.status || "").toLowerCase())
     );
 
 }
@@ -2228,7 +2254,12 @@ function getPendingActionCount() {
         LORDBLESS_CLIENT_ACCOUNT.documents || [];
 
 
-    return documents.filter(
+    const outstandingRequests = getOutstandingDocumentRequests();
+    const outstandingRequestIds = new Set(outstandingRequests.map(request => String(request.id || "")));
+    const requestedTypes = new Set(outstandingRequests
+        .map(request => String(request.documentType || request.document_type || "").toLowerCase())
+        .filter(Boolean));
+    const documentOnlyActions = documents.filter(
         documentItem => {
 
             const status =
@@ -2242,8 +2273,9 @@ function getPendingActionCount() {
                 status === "expired" ||
                 status === "missing"
             ) {
-
-                return true;
+                const documentType = String(documentItem.type || documentItem.document_type || "").toLowerCase();
+                const requestId = documentItem.documentRequestId || documentItem.document_request_id;
+                return !outstandingRequestIds.has(String(requestId || "")) && !requestedTypes.has(documentType);
 
             }
 
@@ -2252,6 +2284,8 @@ function getPendingActionCount() {
 
         }
     ).length;
+
+    return outstandingRequests.length + documentOnlyActions;
 
 }
 
@@ -3200,8 +3234,6 @@ function showDocumentDetails(
     let message =
 
         `Document: ${documentItem.name}\n` +
-
-        `Reference: ${documentItem.id}\n` +
 
         `File: ${
             documentItem.filename ||
