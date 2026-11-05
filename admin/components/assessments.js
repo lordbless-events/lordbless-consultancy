@@ -257,6 +257,8 @@
 
     async function saveDecision(decision) {
         if (!canWrite() || state.saving) return;
+        const clientId = state.selectedClientId;
+        const previousQueueRecord = getSelectedRecord();
         const form = state.container.querySelector("[data-assessment-form]");
         if (!form) return;
         const assessmentReason = form.elements.assessment_reason.value.trim();
@@ -273,18 +275,41 @@
         state.message = "Saving assessment decision…";
         renderReview();
         try {
-            const { data, error } = await lordblessSupabase.rpc("save_client_assessment_decision", {
-                p_client_id: state.selectedClientId,
+            const { data: savedDecisionId, error } = await lordblessSupabase.rpc("save_client_assessment_decision", {
+                p_client_id: clientId,
                 p_decision: decision,
                 p_assessment_reason: assessmentReason || null,
                 p_admin_comments: adminComments
             });
             if (error) throw error;
-            if (!data) throw new Error("The saved decision was not confirmed by the database.");
+            if (!savedDecisionId) throw new Error("The saved decision was not confirmed by the database.");
+
+            const { data: persistedDecision, error: confirmationError } = await lordblessSupabase
+                .from("client_assessment_decisions")
+                .select("id, client_id, decision, assessment_reason, admin_comments, reviewer_id, reviewer_name, reviewed_at, created_at, updated_at")
+                .eq("id", savedDecisionId)
+                .maybeSingle();
+            if (confirmationError) {
+                throw new Error(`The decision was submitted but could not be verified: ${confirmationError.message}`);
+            }
+            if (!persistedDecision) {
+                throw new Error("The database did not return the saved assessment decision.");
+            }
+
+            const confirmedQueueRecord = {
+                ...previousQueueRecord,
+                ...persistedDecision,
+                decision_id: persistedDecision.id,
+                client_id: clientId
+            };
             state.message = "Assessment decision saved. Previous decisions remain in history.";
-            state.saving = false;
             await loadQueue();
-            await loadHistory(state.selectedClientId);
+            if (!state.records.some(record => String(record.client_id) === String(clientId))) {
+                state.records = [confirmedQueueRecord, ...state.records];
+                state.error = state.error || "The database confirmed this decision; the refreshed queue did not return the client row. The confirmed decision is shown here.";
+            }
+            state.selectedClientId = clientId;
+            await loadHistory(clientId);
         } catch (error) {
             state.error = error?.message || "The assessment decision could not be saved.";
             state.message = "";
