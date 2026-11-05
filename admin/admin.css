@@ -347,6 +347,24 @@ body {
     overflow-x: auto;
 }
 
+.assessment-workspace .enquiry-table {
+    min-width: 760px;
+}
+
+.assessment-workspace .assessment-enquiry-details,
+.assessment-workspace .detail-row strong {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+}
+
+.assessment-decision-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 14px;
+}
+
 .enquiry-table {
     width: 100%;
     border-collapse: collapse;

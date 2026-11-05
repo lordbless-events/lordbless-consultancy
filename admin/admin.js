@@ -2835,19 +2835,14 @@ function renderView(
 
         case "assessments":
 
-            renderPlaceholder(
-                "Assessments",
-                "Client assessments will appear here."
-            );
-
-            break;
-
-case "assessments":
-
-            renderPlaceholder(
-                "Assessments",
-                "Client assessments will appear here."
-            );
+            if (window.LORDBLESS_ASSESSMENTS?.render) {
+                void window.LORDBLESS_ASSESSMENTS.render(appContent);
+            } else {
+                renderPlaceholder(
+                    "Assessments",
+                    "The assessment decision workspace could not be loaded."
+                );
+            }
 
             break;
 
