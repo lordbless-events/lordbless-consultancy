@@ -43,6 +43,16 @@
         return ({ approved: "Approved", on_hold: "On Hold", rejected: "Rejected" })[value] || "Awaiting assessment";
     }
 
+    function formatSaveError(error) {
+        if (!error || typeof error !== "object") {
+            return String(error || "The assessment decision could not be saved.");
+        }
+
+        const parts = [error.message, error.code && `Code: ${error.code}`, error.details, error.hint && `Hint: ${error.hint}`]
+            .filter(Boolean);
+        return parts.join(" · ") || "The assessment decision could not be saved.";
+    }
+
     function asArray(value) {
         if (Array.isArray(value)) return value;
         if (typeof value === "string") {
@@ -311,7 +321,7 @@
             state.selectedClientId = clientId;
             await loadHistory(clientId);
         } catch (error) {
-            state.error = error?.message || "The assessment decision could not be saved.";
+            state.error = formatSaveError(error);
             state.message = "";
         } finally {
             state.saving = false;
