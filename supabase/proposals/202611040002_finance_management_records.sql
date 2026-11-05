@@ -1,159 +1,522 @@
--- Review proposal only. Do not apply until production permissions and schema
--- are confirmed. Uses existing client_assessment_payments for verified client
--- income; this table stores only additional organisational income and expenses.
-begin;
 
-do $$
-begin
-    if to_regclass('public.staff_profiles') is null
-       or to_regclass('public.client_assessment_payments') is null
-       or to_regprocedure('private.has_permission(text)') is null then
-        raise exception 'Apply the existing identity and assessment-payment migrations first.';
-    end if;
-end;
+-- ============================================================
+-- LORDBLESS CONSULTANCY
+-- FINANCE MANAGEMENT RECORDS
+-- Migration: 202611040002
+--
+-- PURPOSE:
+-- Additional organisational income and expense management.
+--
+-- SECURITY:
+-- Finance access is controlled by a dedicated permission
+-- function that does NOT automatically authorise overall admins.
+--
+-- Finance permissions:
+--   finance.read
+--   finance.requests
+--
+-- Existing verified client assessment payments remain in:
+--   public.client_assessment_payments
+--
+-- No staff accounts or permissions are created here.
+-- No existing client, payment, receipt, document or Autos
+-- records are modified.
+-- ============================================================
+
+BEGIN;
+
+-- ============================================================
+-- 1. PRODUCTION PREREQUISITE CHECKS
+-- ============================================================
+
+DO $$
+DECLARE
+    staff_user_id_attnum smallint;
+BEGIN
+    IF to_regclass('public.staff_profiles') IS NULL THEN
+        RAISE EXCEPTION 'Missing public.staff_profiles';
+    END IF;
+
+    IF to_regclass('public.client_assessment_payments') IS NULL THEN
+        RAISE EXCEPTION 'Missing public.client_assessment_payments';
+    END IF;
+
+    IF to_regclass('public.staff_permissions') IS NULL THEN
+        RAISE EXCEPTION 'Missing public.staff_permissions';
+    END IF;
+
+    IF to_regclass('public.staff_roles') IS NULL THEN
+        RAISE EXCEPTION 'Missing public.staff_roles';
+    END IF;
+
+    IF to_regclass('public.role_permissions') IS NULL THEN
+        RAISE EXCEPTION 'Missing public.role_permissions';
+    END IF;
+
+    IF to_regprocedure('private.has_permission(text)') IS NULL THEN
+        RAISE EXCEPTION 'Missing private.has_permission(text)';
+    END IF;
+
+    SELECT attnum
+    INTO staff_user_id_attnum
+    FROM pg_attribute
+    WHERE attrelid = 'public.staff_profiles'::regclass
+      AND attname = 'user_id'
+      AND NOT attisdropped;
+
+    IF staff_user_id_attnum IS NULL THEN
+        RAISE EXCEPTION 'Missing staff_profiles.user_id';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conrelid = 'public.staff_profiles'::regclass
+          AND contype = 'p'
+          AND conkey = ARRAY[staff_user_id_attnum]::smallint[]
+    ) THEN
+        RAISE EXCEPTION
+            'staff_profiles.user_id must be the primary key';
+    END IF;
+END;
 $$;
 
-create table if not exists public.finance_adjustments (
-    id uuid primary key default gen_random_uuid(),
-    entry_type text not null check (entry_type in ('income', 'expense')),
-    entry_date date not null,
-    category text not null,
-    description text not null check (length(btrim(description)) between 1 and 240),
-    amount numeric(12,2) not null check (amount > 0),
-    additional_amount numeric(12,2) not null default 0 check (additional_amount >= 0),
-    currency text not null check (currency in ('EUR', 'USD', 'GHS')),
+-- ============================================================
+-- 2. DEDICATED FINANCE PERMISSION FUNCTION
+-- ============================================================
+
+-- IMPORTANT:
+-- This function deliberately does not call
+-- private.is_overall_admin().
+--
+-- Overall administrator status alone does not grant Finance
+-- access. An active staff profile and explicit Finance
+-- permission are required.
+
+CREATE OR REPLACE FUNCTION private.has_finance_permission(
+    p_permission_code text
+)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, public, auth, private
+AS $function$
+
+    SELECT
+        CASE
+            WHEN p_permission_code NOT IN (
+                'finance.read',
+                'finance.requests'
+            )
+            OR p_permission_code IS NULL
+            THEN false
+
+            ELSE EXISTS (
+                SELECT 1
+                FROM public.staff_profiles sp
+                WHERE sp.user_id = auth.uid()
+                  AND sp.active = true
+                  AND (
+                      EXISTS (
+                          SELECT 1
+                          FROM public.staff_permissions up
+                          WHERE up.user_id = sp.user_id
+                            AND up.permission_code =
+                                p_permission_code
+                      )
+
+                      OR EXISTS (
+                          SELECT 1
+                          FROM public.staff_roles sr
+                          JOIN public.role_permissions rp
+                            ON rp.role_code = sr.role_code
+                          WHERE sr.user_id = sp.user_id
+                            AND rp.permission_code =
+                                p_permission_code
+                      )
+                  )
+            )
+        END;
+
+$function$;
+
+-- Only authenticated users need to call this function
+-- through the Finance RLS policies.
+
+REVOKE ALL ON FUNCTION
+    private.has_finance_permission(text)
+FROM PUBLIC, anon;
+
+GRANT EXECUTE ON FUNCTION
+    private.has_finance_permission(text)
+TO authenticated;
+
+-- ============================================================
+-- 3. FINANCE ADJUSTMENTS TABLE
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS public.finance_adjustments (
+
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    entry_type text NOT NULL
+        CHECK (entry_type IN ('income', 'expense')),
+
+    entry_date date NOT NULL,
+
+    category text NOT NULL,
+
+    description text NOT NULL
+        CHECK (
+            length(btrim(description))
+            BETWEEN 1 AND 240
+        ),
+
+    amount numeric(12,2) NOT NULL
+        CHECK (amount > 0),
+
+    additional_amount numeric(12,2) NOT NULL DEFAULT 0
+        CHECK (additional_amount >= 0),
+
+    currency text NOT NULL
+        CHECK (currency IN ('EUR', 'USD', 'GHS')),
+
     payment_method text,
     payment_reference text,
     remarks text,
+
     staff_name text,
     payment_period text,
-    created_by uuid not null default auth.uid() references public.staff_profiles(user_id) on delete restrict,
-    updated_by uuid not null default auth.uid() references public.staff_profiles(user_id) on delete restrict,
-    created_at timestamptz not null default now(),
-    updated_at timestamptz not null default now(),
-    constraint finance_adjustments_staff_fields_check check (
-        (category in ('staff_remuneration', 'staff_allowances') and entry_type = 'expense'
-            and nullif(btrim(staff_name), '') is not null
-            and nullif(btrim(payment_period), '') is not null)
-        or category not in ('staff_remuneration', 'staff_allowances')
-    ),
-    constraint finance_adjustments_income_category_check check (
-        entry_type <> 'income' or category in (
-            'other_organisational_income', 'investment_income', 'refund_recovery', 'other_income'
+
+    created_by uuid NOT NULL DEFAULT auth.uid()
+        REFERENCES public.staff_profiles(user_id)
+        ON DELETE RESTRICT,
+
+    updated_by uuid NOT NULL DEFAULT auth.uid()
+        REFERENCES public.staff_profiles(user_id)
+        ON DELETE RESTRICT,
+
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+
+    CONSTRAINT finance_adjustments_staff_fields_check
+    CHECK (
+        (
+            category IN (
+                'staff_remuneration',
+                'staff_allowances'
+            )
+            AND entry_type = 'expense'
+            AND nullif(btrim(staff_name), '') IS NOT NULL
+            AND nullif(btrim(payment_period), '') IS NOT NULL
+        )
+        OR category NOT IN (
+            'staff_remuneration',
+            'staff_allowances'
         )
     ),
-    constraint finance_adjustments_expense_category_check check (
-        entry_type <> 'expense' or category in (
-            'internet_wifi', 'ai_subscriptions', 'software_subscriptions', 'electricity',
-            'office_expenses', 'staff_remuneration', 'staff_allowances',
-            'marketing_advertising', 'transport_logistics', 'professional_services',
-            'equipment_maintenance', 'other_expenses'
+
+    CONSTRAINT finance_adjustments_income_category_check
+    CHECK (
+        entry_type <> 'income'
+        OR category IN (
+            'other_organisational_income',
+            'investment_income',
+            'refund_recovery',
+            'other_income'
+        )
+    ),
+
+    CONSTRAINT finance_adjustments_expense_category_check
+    CHECK (
+        entry_type <> 'expense'
+        OR category IN (
+            'internet_wifi',
+            'ai_subscriptions',
+            'software_subscriptions',
+            'electricity',
+            'office_expenses',
+            'staff_remuneration',
+            'staff_allowances',
+            'marketing_advertising',
+            'transport_logistics',
+            'professional_services',
+            'equipment_maintenance',
+            'other_expenses'
         )
     )
 );
 
-create table if not exists public.finance_adjustment_history (
-    id bigint generated always as identity primary key,
-    adjustment_id uuid not null references public.finance_adjustments(id) on delete restrict,
-    action text not null check (action in ('created', 'updated')),
+-- ============================================================
+-- 4. FINANCE AUDIT HISTORY TABLE
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS public.finance_adjustment_history (
+
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+
+    adjustment_id uuid NOT NULL
+        REFERENCES public.finance_adjustments(id)
+        ON DELETE RESTRICT,
+
+    action text NOT NULL
+        CHECK (action IN ('created', 'updated')),
+
     before_record jsonb,
-    after_record jsonb not null,
-    changed_by uuid references public.staff_profiles(user_id) on delete set null,
-    changed_at timestamptz not null default now()
+    after_record jsonb NOT NULL,
+
+    changed_by uuid
+        REFERENCES public.staff_profiles(user_id)
+        ON DELETE SET NULL,
+
+    changed_at timestamptz NOT NULL DEFAULT now()
 );
 
-create index if not exists finance_adjustments_date_currency_idx
-    on public.finance_adjustments(entry_date desc, currency, entry_type);
-create index if not exists finance_adjustment_history_record_changed_idx
-    on public.finance_adjustment_history(adjustment_id, changed_at desc);
+-- ============================================================
+-- 5. INDEXES
+-- ============================================================
 
-alter table public.finance_adjustments enable row level security;
-alter table public.finance_adjustment_history enable row level security;
-
-revoke all on public.finance_adjustments, public.finance_adjustment_history from public, anon;
-grant select, insert, update on public.finance_adjustments to authenticated;
-grant select on public.finance_adjustment_history to authenticated;
-
-drop policy if exists finance_adjustments_read_authorized on public.finance_adjustments;
-create policy finance_adjustments_read_authorized
-on public.finance_adjustments for select to authenticated
-using (private.has_permission('finance.read'));
-
-drop policy if exists finance_adjustments_create_authorized on public.finance_adjustments;
-create policy finance_adjustments_create_authorized
-on public.finance_adjustments for insert to authenticated
-with check (
-    private.has_permission('finance.requests')
-    and created_by = auth.uid()
-    and updated_by = auth.uid()
+CREATE INDEX IF NOT EXISTS
+    finance_adjustments_date_currency_idx
+ON public.finance_adjustments (
+    entry_date DESC,
+    currency,
+    entry_type
 );
 
-drop policy if exists finance_adjustments_update_authorized on public.finance_adjustments;
-create policy finance_adjustments_update_authorized
-on public.finance_adjustments for update to authenticated
-using (private.has_permission('finance.requests'))
-with check (
-    private.has_permission('finance.requests')
-    and updated_by = auth.uid()
+CREATE INDEX IF NOT EXISTS
+    finance_adjustment_history_record_changed_idx
+ON public.finance_adjustment_history (
+    adjustment_id,
+    changed_at DESC
 );
 
-drop policy if exists finance_adjustment_history_read_authorized on public.finance_adjustment_history;
-create policy finance_adjustment_history_read_authorized
-on public.finance_adjustment_history for select to authenticated
-using (private.has_permission('finance.read'));
+-- ============================================================
+-- 6. ROW LEVEL SECURITY AND TABLE PRIVILEGES
+-- ============================================================
 
-create or replace function private.prepare_finance_adjustment()
-returns trigger
-language plpgsql
-security definer
-set search_path = pg_catalog, public, private
-as $$
-begin
-    if tg_op = 'UPDATE' then
-        new.created_by := old.created_by;
-        new.created_at := old.created_at;
-        new.updated_by := auth.uid();
-        new.updated_at := now();
-        return new;
-    end if;
+ALTER TABLE public.finance_adjustments
+ENABLE ROW LEVEL SECURITY;
 
-    new.created_by := auth.uid();
-    new.updated_by := auth.uid();
-    return new;
-end;
-$$;
+ALTER TABLE public.finance_adjustment_history
+ENABLE ROW LEVEL SECURITY;
 
-create or replace function private.record_finance_adjustment_history()
-returns trigger
-language plpgsql
-security definer
-set search_path = pg_catalog, public, private
-as $$
-begin
-    if tg_op = 'UPDATE' then
-        insert into public.finance_adjustment_history (
-            adjustment_id, action, before_record, after_record, changed_by
-        ) values (new.id, 'updated', to_jsonb(old), to_jsonb(new), auth.uid());
-    else
-        insert into public.finance_adjustment_history (
-            adjustment_id, action, after_record, changed_by
-        ) values (new.id, 'created', to_jsonb(new), auth.uid());
-    end if;
-    return new;
-end;
-$$;
+-- Remove existing table privileges before granting only
+-- the privileges required by the Finance application.
 
-revoke all on function private.prepare_finance_adjustment() from public, anon, authenticated;
-revoke all on function private.record_finance_adjustment_history() from public, anon, authenticated;
-drop trigger if exists finance_adjustments_prepare on public.finance_adjustments;
-create trigger finance_adjustments_prepare
-before insert or update on public.finance_adjustments
-for each row execute function private.prepare_finance_adjustment();
-drop trigger if exists finance_adjustments_audit on public.finance_adjustments;
-create trigger finance_adjustments_audit
-after insert or update on public.finance_adjustments
-for each row execute function private.record_finance_adjustment_history();
+REVOKE ALL ON TABLE
+    public.finance_adjustments,
+    public.finance_adjustment_history
+FROM PUBLIC, anon, authenticated;
 
--- Deliberately grant no DELETE privilege or policy. Financial corrections are
--- made by editing a saved row and are retained in finance_adjustment_history.
-commit;
+GRANT SELECT, INSERT, UPDATE
+ON TABLE public.finance_adjustments
+TO authenticated;
+
+GRANT SELECT
+ON TABLE public.finance_adjustment_history
+TO authenticated;
+
+-- No DELETE privilege is granted.
+
+-- ============================================================
+-- 7. FINANCE ADJUSTMENT RLS POLICIES
+-- ============================================================
+
+DROP POLICY IF EXISTS
+    finance_adjustments_read_authorized
+ON public.finance_adjustments;
+
+CREATE POLICY finance_adjustments_read_authorized
+ON public.finance_adjustments
+FOR SELECT
+TO authenticated
+USING (
+    private.has_finance_permission('finance.read')
+);
+
+DROP POLICY IF EXISTS
+    finance_adjustments_create_authorized
+ON public.finance_adjustments;
+
+CREATE POLICY finance_adjustments_create_authorized
+ON public.finance_adjustments
+FOR INSERT
+TO authenticated
+WITH CHECK (
+    private.has_finance_permission('finance.requests')
+    AND created_by = (SELECT auth.uid())
+    AND updated_by = (SELECT auth.uid())
+);
+
+DROP POLICY IF EXISTS
+    finance_adjustments_update_authorized
+ON public.finance_adjustments;
+
+CREATE POLICY finance_adjustments_update_authorized
+ON public.finance_adjustments
+FOR UPDATE
+TO authenticated
+USING (
+    private.has_finance_permission('finance.requests')
+)
+WITH CHECK (
+    private.has_finance_permission('finance.requests')
+    AND updated_by = (SELECT auth.uid())
+);
+
+-- ============================================================
+-- 8. FINANCE HISTORY RLS POLICY
+-- ============================================================
+
+DROP POLICY IF EXISTS
+    finance_adjustment_history_read_authorized
+ON public.finance_adjustment_history;
+
+CREATE POLICY finance_adjustment_history_read_authorized
+ON public.finance_adjustment_history
+FOR SELECT
+TO authenticated
+USING (
+    private.has_finance_permission('finance.read')
+);
+
+-- History INSERT operations are performed by the
+-- security-definer audit trigger below.
+
+-- ============================================================
+-- 9. PREPARE FINANCE ADJUSTMENT TRIGGER
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION private.prepare_finance_adjustment()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, auth, private
+AS $function$
+
+BEGIN
+
+    IF TG_OP = 'UPDATE' THEN
+
+        NEW.id := OLD.id;
+        NEW.created_by := OLD.created_by;
+        NEW.created_at := OLD.created_at;
+
+        NEW.updated_by := auth.uid();
+        NEW.updated_at := now();
+
+        RETURN NEW;
+
+    END IF;
+
+    NEW.created_by := auth.uid();
+    NEW.updated_by := auth.uid();
+
+    RETURN NEW;
+
+END;
+
+$function$;
+
+-- ============================================================
+-- 10. AUDIT HISTORY TRIGGER FUNCTION
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION private.record_finance_adjustment_history()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, auth, private
+AS $function$
+
+BEGIN
+
+    IF TG_OP = 'UPDATE' THEN
+
+        INSERT INTO public.finance_adjustment_history (
+            adjustment_id,
+            action,
+            before_record,
+            after_record,
+            changed_by
+        )
+        VALUES (
+            NEW.id,
+            'updated',
+            to_jsonb(OLD),
+            to_jsonb(NEW),
+            auth.uid()
+        );
+
+    ELSE
+
+        INSERT INTO public.finance_adjustment_history (
+            adjustment_id,
+            action,
+            after_record,
+            changed_by
+        )
+        VALUES (
+            NEW.id,
+            'created',
+            to_jsonb(NEW),
+            auth.uid()
+        );
+
+    END IF;
+
+    RETURN NEW;
+
+END;
+
+$function$;
+
+-- Trigger functions cannot be called directly by application users.
+
+REVOKE ALL ON FUNCTION
+    private.prepare_finance_adjustment()
+FROM PUBLIC, anon, authenticated;
+
+REVOKE ALL ON FUNCTION
+    private.record_finance_adjustment_history()
+FROM PUBLIC, anon, authenticated;
+
+-- ============================================================
+-- 11. INSTALL FINANCE TRIGGERS
+-- ============================================================
+
+DROP TRIGGER IF EXISTS
+    finance_adjustments_prepare
+ON public.finance_adjustments;
+
+CREATE TRIGGER finance_adjustments_prepare
+BEFORE INSERT OR UPDATE
+ON public.finance_adjustments
+FOR EACH ROW
+EXECUTE FUNCTION private.prepare_finance_adjustment();
+
+DROP TRIGGER IF EXISTS
+    finance_adjustments_audit
+ON public.finance_adjustments;
+
+CREATE TRIGGER finance_adjustments_audit
+AFTER INSERT OR UPDATE
+ON public.finance_adjustments
+FOR EACH ROW
+EXECUTE FUNCTION private.record_finance_adjustment_history();
+
+-- ============================================================
+-- 12. DELETE RESTRICTION
+--
+-- No DELETE privilege or DELETE policy is provided.
+-- Financial corrections are made through authorised updates.
+-- All changes are retained in the audit history.
+-- ============================================================
+
+COMMIT;
+
+-- ============================================================
+-- END OF FINANCE MANAGEMENT MIGRATION
+-- ============================================================
