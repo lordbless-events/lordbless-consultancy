@@ -26,7 +26,7 @@
         ["refund_recovery", "Refund or recovery"],
         ["other_income", "Other income"]
     ];
-    const state = { container: null, entries: [], payments: [], period: "month", from: "", to: "", currency: "all", error: "", busy: false };
+    const state = { container: null, entries: [], payments: [], period: "month", from: "", to: "", currency: "all", error: "", success: "", loading: false, busy: false };
 
     function escape(value) {
         return String(value == null ? "" : value).replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[character]);
@@ -41,7 +41,101 @@
         if (document.getElementById("lbc-financial-management-styles")) return;
         const style = document.createElement("style");
         style.id = "lbc-financial-management-styles";
-        style.textContent = `.lbc-finance-management{display:grid;gap:18px}.lbc-finance-management .fm-toolbar,.lbc-finance-management .fm-filters,.lbc-finance-management .fm-actions{display:flex;gap:10px;align-items:end;flex-wrap:wrap}.lbc-finance-management .fm-toolbar{justify-content:space-between}.fm-filters label,.fm-form label{display:grid;gap:5px;font-size:13px;color:#455266}.fm-filters input,.fm-filters select,.fm-form input,.fm-form select,.fm-form textarea{min-height:38px;padding:8px 10px;border:1px solid #d4dbe5;border-radius:7px;background:white}.fm-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:12px}.fm-card,.fm-panel{background:#fff;border:1px solid #e1e6ed;border-radius:10px;padding:16px}.fm-card span,.fm-card small{display:block;color:#59677a}.fm-card strong{display:block;font-size:21px;margin:7px 0}.fm-panel h3{margin:0 0 13px}.fm-scroll{overflow:auto}.fm-table{width:100%;border-collapse:collapse;min-width:760px}.fm-table th,.fm-table td{text-align:left;padding:10px;border-bottom:1px solid #edf0f4;vertical-align:top}.fm-table th{font-size:12px;color:#64748b}.fm-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.fm-form .wide{grid-column:1/-1}.fm-status{padding:10px;border-radius:7px;background:#fff8e8;color:#795400}.fm-report-title{display:none}.lbc-finance-management [hidden]{display:none!important}@media print{.fm-toolbar,.fm-filters,.fm-actions,.fm-edit,.fm-status{display:none!important}.fm-report-title{display:block}.fm-panel,.fm-card{break-inside:avoid}.finance-sidebar{display:none!important}}@media(max-width:650px){.fm-form{grid-template-columns:1fr}.fm-form .wide{grid-column:auto}}`;
+        style.textContent = `
+            .lbc-finance-management {
+                display: grid;
+                width: 100%;
+                max-width: 100%;
+                min-width: 0;
+                box-sizing: border-box;
+                gap: 18px;
+            }
+            .lbc-finance-management > * {
+                min-width: 0;
+                max-width: 100%;
+                box-sizing: border-box;
+            }
+            .lbc-finance-management .fm-toolbar,
+            .lbc-finance-management .fm-filters,
+            .lbc-finance-management .fm-actions {
+                display: flex;
+                min-width: 0;
+                max-width: 100%;
+                box-sizing: border-box;
+                gap: 10px;
+                align-items: end;
+                flex-wrap: wrap;
+            }
+            .lbc-finance-management .fm-toolbar { justify-content: space-between; }
+            .fm-toolbar > div:first-child { flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; }
+            .fm-actions { flex: 1 1 100%; justify-content: flex-end; }
+            .fm-actions button { max-width: 100%; overflow-wrap: anywhere; }
+            .fm-filters label {
+                display: grid;
+                flex: 1 1 145px;
+                min-width: 0;
+                max-width: 100%;
+                gap: 5px;
+                font-size: 13px;
+                color: #455266;
+            }
+            .fm-form label { display: grid; min-width: 0; gap: 5px; font-size: 13px; color: #455266; }
+            .fm-filters input, .fm-filters select, .fm-form input, .fm-form select, .fm-form textarea {
+                width: 100%;
+                min-width: 0;
+                max-width: 100%;
+                min-height: 38px;
+                box-sizing: border-box;
+                padding: 8px 10px;
+                border: 1px solid #d4dbe5;
+                border-radius: 7px;
+                background: white;
+            }
+            .fm-summary {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(min(175px, 100%), 1fr));
+                min-width: 0;
+                max-width: 100%;
+                gap: 12px;
+            }
+            .fm-card, .fm-panel {
+                min-width: 0;
+                max-width: 100%;
+                box-sizing: border-box;
+                overflow-wrap: anywhere;
+                background: #fff;
+                border: 1px solid #e1e6ed;
+                border-radius: 10px;
+                padding: 16px;
+            }
+            .fm-card span, .fm-card small { display: block; color: #59677a; overflow-wrap: anywhere; }
+            .fm-card strong { display: block; min-width: 0; font-size: 21px; margin: 7px 0; overflow-wrap: anywhere; }
+            .fm-panel h3 { margin: 0 0 13px; overflow-wrap: anywhere; }
+            .fm-scroll { width: 100%; min-width: 0; max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; }
+            .fm-table { width: 100%; min-width: 760px; border-collapse: collapse; }
+            .fm-table th, .fm-table td { text-align: left; padding: 10px; border-bottom: 1px solid #edf0f4; vertical-align: top; overflow-wrap: anywhere; }
+            .fm-table th { font-size: 12px; color: #64748b; }
+            .fm-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); min-width: 0; }
+            .fm-form .wide { grid-column: 1 / -1; }
+            .fm-status { padding: 10px; border-radius: 7px; background: #fff8e8; color: #795400; overflow-wrap: anywhere; }
+            .fm-status.is-success { background: #edf8f0; color: #245a32; }
+            .fm-report-title { display: none; }
+            .lbc-finance-management [hidden] { display: none !important; }
+            @media print {
+                .fm-toolbar, .fm-filters, .fm-actions, .fm-edit, .fm-status { display: none !important; }
+                .fm-report-title { display: block; }
+                .fm-panel, .fm-card { break-inside: avoid; }
+                .finance-sidebar { display: none !important; }
+                .fm-scroll { overflow: visible; }
+                .fm-table { min-width: 0; }
+            }
+            @media (max-width: 650px) {
+                .fm-actions { justify-content: flex-start; }
+                .fm-summary { grid-template-columns: repeat(auto-fit, minmax(min(155px, 100%), 1fr)); }
+                .fm-form { grid-template-columns: minmax(0, 1fr); }
+                .fm-form .wide { grid-column: auto; }
+            }
+        `;
         document.head.appendChild(style);
     }
     function dateString(date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; }
@@ -76,15 +170,23 @@
     function getVisiblePayments() { return state.payments.filter(payment => dateAllowed(payment.payment_date || payment.verified_at || payment.created_at) && (state.currency === "all" || payment.currency === state.currency)); }
     async function loadRecords() {
         state.error = "";
-        const [entryResult, paymentResult] = await Promise.all([
-            lordblessSupabase.from("finance_adjustments").select("id, entry_type, entry_date, category, description, amount, additional_amount, currency, payment_method, payment_reference, remarks, staff_name, payment_period, created_at, updated_at").order("entry_date", { ascending: false }),
-            lordblessSupabase.from("client_assessment_payments").select("id, client_id, client_name, client_code, reference, purpose, verification_status, amount_received, amount, currency, payment_date, transaction_reference, verified_at").eq("verification_status", "verified").order("payment_date", { ascending: false })
-        ]);
-        if (entryResult.error) state.error = `Saved financial entries could not be loaded: ${entryResult.error.message}`;
-        if (paymentResult.error) state.error = `${state.error ? `${state.error} ` : ""}Verified client income could not be loaded: ${paymentResult.error.message}`;
-        state.entries = entryResult.data || [];
-        state.payments = paymentResult.data || [];
+        state.loading = true;
         draw();
+        try {
+            const [entryResult, paymentResult] = await Promise.all([
+                lordblessSupabase.from("finance_adjustments").select("id, entry_type, entry_date, category, description, amount, additional_amount, currency, payment_method, payment_reference, remarks, staff_name, payment_period, created_at, updated_at").order("entry_date", { ascending: false }),
+                lordblessSupabase.from("client_assessment_payments").select("id, client_id, client_name, client_code, reference, purpose, verification_status, amount_received, amount, currency, payment_date, transaction_reference, verified_at").eq("verification_status", "verified").order("payment_date", { ascending: false })
+            ]);
+            if (entryResult.error) state.error = `Saved financial entries could not be loaded: ${entryResult.error.message}`;
+            if (paymentResult.error) state.error = `${state.error ? `${state.error} ` : ""}Verified client income could not be loaded: ${paymentResult.error.message}`;
+            state.entries = entryResult.data || [];
+            state.payments = paymentResult.data || [];
+        } catch (error) {
+            state.error = `Financial records could not be loaded: ${error?.message || "Connection error"}`;
+        } finally {
+            state.loading = false;
+            draw();
+        }
     }
     function totals(currency) {
         const entries = getVisibleEntries().filter(entry => entry.currency === currency);
@@ -127,7 +229,14 @@
         const entries = getVisibleEntries().slice().sort((a, b) => String(b.entry_date).localeCompare(String(a.entry_date)));
         const rows = entries.map(entry => `<tr><td>${escape(String(entry.entry_date || "").slice(0, 10))}</td><td>${entry.entry_type === "income" ? "Manual income" : "Expense"}</td><td>${escape(labelFor(entry.category, entry.entry_type === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES))}${entry.staff_name ? `<br>${escape(entry.staff_name)} · ${escape(entry.payment_period || "")}` : ""}</td><td>${escape(entry.description)}</td><td>${escape(entry.payment_reference || "—")}</td><td>${escape(entry.currency)}</td><td>${money(entryTotal(entry), entry.currency)}</td><td>${canManage() ? `<button type="button" class="button button-secondary fm-edit" data-edit-entry="${escape(entry.id)}">Edit</button>` : "Saved"}</td></tr>`).join("");
         const reportRows = `${incomeRows}${rows}` || `<tr><td colspan="8">No financial activity in this period.</td></tr>`;
-        state.container.innerHTML = `<div class="lbc-finance-management"><div class="fm-toolbar"><div><p class="section-eyebrow">FINANCE</p><h2>Financial Management & Reports</h2><p class="section-description">Saved records only. Currency totals are kept separate.</p></div><div class="fm-actions"><button type="button" class="button button-secondary" data-export="csv">Export Excel (CSV)</button><button type="button" class="button button-secondary" data-export="print">Print / Save PDF</button>${canManage() ? `<button type="button" class="button button-primary" data-add-entry="income">+ Record Income</button><button type="button" class="button button-primary" data-add-entry="expense">+ Add Expense</button>` : ""}</div></div>${state.error ? `<p class="fm-status" role="alert">${escape(state.error)}. Run the finance records proposal before using saved entries.</p>` : ""}<div class="fm-panel fm-filters"><label>Report period<select id="fm-period"><option value="month">Monthly</option><option value="quarter">Quarterly</option><option value="year">Annual</option><option value="custom">Custom range</option></select></label><label>From<input type="date" id="fm-from" value="${escape(state.from)}"></label><label>To<input type="date" id="fm-to" value="${escape(state.to)}"></label><label>Currency<select id="fm-currency"><option value="all">All currencies separately</option>${CURRENCIES.map(currency => `<option value="${currency}">${currency}</option>`).join("")}</select></label><button type="button" class="button button-secondary" data-refresh>Refresh saved data</button></div><div class="fm-report-title"><h1>LORDBLESS CONSULTANCY Financial Report</h1><p>${escape(state.from)} to ${escape(state.to)} · ${escape(state.currency === "all" ? "EUR / USD / GHS shown separately" : state.currency)}</p></div>${summary}${breakdown}<section class="fm-panel"><h3>Transaction summary</h3><div class="fm-scroll"><table class="fm-table"><thead><tr><th>Date</th><th>Type</th><th>Category / Client</th><th>Description / Service</th><th>Reference</th><th>Currency</th><th>Amount</th><th>Record</th></tr></thead><tbody>${reportRows}</tbody></table></div></section><div id="fm-entry-form"></div></div>`;
+        const status = state.error
+            ? `<p class="fm-status" role="alert">${escape(state.error)}${state.error.includes("finance_adjustments") ? " Apply the reviewed finance records proposal to enable saved entries." : ""}</p>`
+            : state.success
+                ? `<p class="fm-status is-success" role="status">${escape(state.success)}</p>`
+                : state.loading
+                    ? `<p class="fm-status" role="status">Loading saved financial records…</p>`
+                    : "";
+        state.container.innerHTML = `<div class="lbc-finance-management"><div class="fm-toolbar"><div><p class="section-eyebrow">FINANCE</p><h2>Financial Management & Reports</h2><p class="section-description">Saved records only. Currency totals are kept separate.</p></div><div class="fm-actions"><button type="button" class="button button-secondary" data-export="csv">Export Excel (CSV)</button><button type="button" class="button button-secondary" data-export="print">Print / Save PDF</button>${canManage() ? `<button type="button" class="button button-primary" data-add-entry="income">+ Record Income</button><button type="button" class="button button-primary" data-add-entry="expense">+ Add Expense</button>` : ""}</div></div>${status}<div class="fm-panel fm-filters"><label>Report period<select id="fm-period"><option value="month">Monthly</option><option value="quarter">Quarterly</option><option value="year">Annual</option><option value="custom">Custom range</option></select></label><label>From<input type="date" id="fm-from" value="${escape(state.from)}"></label><label>To<input type="date" id="fm-to" value="${escape(state.to)}"></label><label>Currency<select id="fm-currency"><option value="all">All currencies separately</option>${CURRENCIES.map(currency => `<option value="${currency}">${currency}</option>`).join("")}</select></label><button type="button" class="button button-secondary" data-refresh>Refresh saved data</button></div><div class="fm-report-title"><h1>LORDBLESS CONSULTANCY Financial Report</h1><p>${escape(state.from)} to ${escape(state.to)} · ${escape(state.currency === "all" ? "EUR / USD / GHS shown separately" : state.currency)}</p></div>${summary}${breakdown}<section class="fm-panel"><h3>Transaction summary</h3><div class="fm-scroll"><table class="fm-table"><thead><tr><th>Date</th><th>Type</th><th>Category / Client</th><th>Description / Service</th><th>Reference</th><th>Currency</th><th>Amount</th><th>Record</th></tr></thead><tbody>${reportRows}</tbody></table></div></section><div id="fm-entry-form"></div></div>`;
         const period = state.container.querySelector("#fm-period"); if (period) period.value = state.period;
         const currency = state.container.querySelector("#fm-currency"); if (currency) currency.value = state.currency;
         bindEvents();
@@ -164,16 +273,27 @@
         payload.additional_amount = Number(payload.additional_amount || 0);
         if (!payload.entry_type || !payload.category || !payload.description || !Number.isFinite(payload.amount) || payload.amount <= 0) return;
         state.busy = true;
-        const button = form.querySelector("[type=submit]"); if (button) button.disabled = true;
-        let query = lordblessSupabase.from("finance_adjustments");
-        const result = id ? await query.update(payload).eq("id", id) : await query.insert(payload);
-        state.busy = false;
-        if (result.error) {
-            state.error = `The financial record was not saved: ${result.error.message}`;
+        state.error = "";
+        state.success = "";
+        const button = form.querySelector("[type=submit]");
+        if (button) { button.disabled = true; button.textContent = "Saving…"; }
+        try {
+            const query = lordblessSupabase.from("finance_adjustments");
+            const result = id
+                ? await query.update(payload).eq("id", id)
+                : await query.insert(payload);
+            if (result.error) throw result.error;
+            state.busy = false;
+            state.success = id ? "Financial record updated." : "Financial record saved.";
+            await loadRecords();
+        } catch (error) {
+            state.busy = false;
+            state.error = `The financial record was not saved: ${error?.message || "Connection error"}`;
             draw();
-            return;
+            openForm(payload.entry_type, { ...payload, id });
+        } finally {
+            state.busy = false;
         }
-        await loadRecords();
     }
     function exportCSV() {
         const lines = [["Date", "Type", "Client or category", "Description", "Reference", "Currency", "Amount", "Verification"]];
@@ -204,6 +324,7 @@
     }
     async function render(container) {
         state.container = container;
+        state.success = "";
         if (!state.from) applyPeriod("month");
         if (!canRead()) { draw(); return; }
         container.innerHTML = `<div class="empty-state">Loading saved financial records…</div>`;
