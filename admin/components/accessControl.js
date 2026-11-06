@@ -161,8 +161,10 @@ function getRoleLabel(roleId) {
 
     const labels = {
         overall_admin: "Overall Admin",
-        finance_manager: "Finance Manager",
-        desk_staff: "Desk Staff"
+        finance_manager: "Finance & Administration",
+        desk_staff: "Desk Staff (legacy)",
+        operations_client_services: "Operations & Client Services",
+        documentation_admissions: "Documentation & Admissions"
     };
 
     if (labels[roleId]) {

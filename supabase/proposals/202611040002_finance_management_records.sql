@@ -8,8 +8,9 @@
 -- Additional organisational income and expense management.
 --
 -- SECURITY:
--- Finance access is controlled by a dedicated permission
--- function that does NOT automatically authorise overall admins.
+-- Finance access uses a finance-only permission allowlist. Overall Admin
+-- retains full access through the existing private.has_permission() rule;
+-- Finance permissions do not grant unrelated client-case access.
 --
 -- Finance permissions:
 --   finance.read
@@ -85,13 +86,8 @@ $$;
 -- 2. DEDICATED FINANCE PERMISSION FUNCTION
 -- ============================================================
 
--- IMPORTANT:
--- This function deliberately does not call
--- private.is_overall_admin().
---
--- Overall administrator status alone does not grant Finance
--- access. An active staff profile and explicit Finance
--- permission are required.
+-- Limit this helper to finance permissions, while preserving Overall
+-- Admin's existing admin.all authority through private.has_permission().
 
 CREATE OR REPLACE FUNCTION private.has_finance_permission(
     p_permission_code text
@@ -107,36 +103,15 @@ AS $function$
         CASE
             WHEN p_permission_code NOT IN (
                 'finance.read',
-                'finance.requests'
+                'finance.requests',
+                'finance.reminders',
+                'finance.verify',
+                'finance.receipts'
             )
             OR p_permission_code IS NULL
             THEN false
 
-            ELSE EXISTS (
-                SELECT 1
-                FROM public.staff_profiles sp
-                WHERE sp.user_id = auth.uid()
-                  AND sp.active = true
-                  AND (
-                      EXISTS (
-                          SELECT 1
-                          FROM public.staff_permissions up
-                          WHERE up.user_id = sp.user_id
-                            AND up.permission_code =
-                                p_permission_code
-                      )
-
-                      OR EXISTS (
-                          SELECT 1
-                          FROM public.staff_roles sr
-                          JOIN public.role_permissions rp
-                            ON rp.role_code = sr.role_code
-                          WHERE sr.user_id = sp.user_id
-                            AND rp.permission_code =
-                                p_permission_code
-                      )
-                  )
-            )
+            ELSE private.has_permission(p_permission_code)
         END;
 
 $function$;

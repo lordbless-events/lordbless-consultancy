@@ -439,7 +439,7 @@ const ADMIN_VIEW_PERMISSIONS = {
     finance: "finance.read",
     assessments: "applications.read",
     stories: "stories.read",
-    team: "team.manage",
+    team: "admin.all",
     settings: "settings.read"
 };
 
@@ -2858,8 +2858,11 @@ function renderView(
 
 
         case "team":
-
-            renderTeamAccess();
+            if (window.LORDBLESS_TEAM_ACCESS?.render) {
+                void window.LORDBLESS_TEAM_ACCESS.render(appContent);
+            } else {
+                renderPlaceholder("Team & Access", "The team administration component could not be loaded.");
+            }
 
             break;
 
