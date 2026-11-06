@@ -746,7 +746,7 @@ body {
 
 }
 
-@media (max-width: 700px) {
+@media (max-width: 800px) {
 
     .sidebar {
         position: static;
@@ -3745,6 +3745,26 @@ body {
 .ta-table td { border-bottom: 1px solid var(--border-color, #e4e8ef); padding: 12px; text-align: left; vertical-align: middle; }
 .ta-table td small { display: block; color: var(--text-secondary, #687386); margin-top: 4px; }
 .ta-actions { white-space: nowrap; }
+.ta-table-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.ta-staff-name { display: block; color: var(--navy, #10243a); }
+.ta-role-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); }
+.ta-role-card { padding: 15px; }
+.ta-role-card.is-overall-admin { border-color: var(--gold, #c7a45a); background: #fffdf8; }
+.ta-role-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.ta-role-protected { flex: 0 0 auto; color: #745613; background: #f6edda; }
+.ta-role-responsibilities { margin-top: 9px !important; font-size: 13px; }
+.ta-role-permissions { margin-top: 12px; border-top: 1px solid var(--border-color, #e4e8ef); padding-top: 10px; }
+.ta-role-permissions summary { color: var(--navy, #10243a); cursor: pointer; font-weight: 650; }
+.ta-role-permissions ul { display: grid; gap: 8px; margin: 10px 0 0; padding: 0; list-style: none; }
+.ta-role-permissions li { display: grid; grid-template-columns: minmax(120px, auto) minmax(0, 1fr); gap: 8px; align-items: start; font-size: 12px; }
+.ta-role-permissions code { color: #344052; overflow-wrap: anywhere; }
+.ta-role-permissions li span { color: var(--text-secondary, #687386); overflow-wrap: anywhere; }
+.ta-legacy-roles { margin-top: 22px; }
+.ta-legacy-roles > h3 { margin: 0 0 5px; color: var(--navy, #10243a); }
+.ta-legacy-roles > p { margin: 0 0 12px; color: var(--text-secondary, #687386); }
+.ta-admin-protection-note { display: block; padding: 10px 12px; border-left: 3px solid var(--gold, #c7a45a); background: #fffdf8; }
+.ta-chip-admin { color: #745613; background: #f6edda; }
+.ta-unassigned { color: #785b17; font-weight: 650; }
 .ta-history-dialog { width: min(680px, calc(100vw - 28px)); max-height: min(80vh, 760px); overflow: auto; border: 0; border-radius: 16px; padding: 22px; box-shadow: 0 20px 70px #10243a33; }
 .ta-history-dialog::backdrop { background: #0d1e32a6; }
 .ta-history-item { display: grid; gap: 4px; border-bottom: 1px solid var(--border-color, #e4e8ef); padding: 12px 0; }
@@ -3759,6 +3779,30 @@ body {
     .ta-control-panel { padding: 14px; }
     .ta-tabs { overflow-x: auto; flex-wrap: nowrap; }
     .ta-tabs button { white-space: nowrap; }
+    .ta-table-wrap { overflow: visible; }
+    .ta-staff-table,
+    .ta-desk-table,
+    .ta-client-table,
+    .ta-staff-table tbody,
+    .ta-desk-table tbody,
+    .ta-client-table tbody { display: block; width: 100%; min-width: 0; }
+    .ta-staff-table thead,
+    .ta-desk-table thead,
+    .ta-client-table thead { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+    .ta-staff-table tr,
+    .ta-desk-table tr,
+    .ta-client-table tr { display: block; margin-bottom: 12px; border: 1px solid var(--border-color, #e4e8ef); border-radius: 10px; padding: 8px 12px; background: #fff; }
+    .ta-staff-table td,
+    .ta-desk-table td,
+    .ta-client-table td { display: grid; grid-template-columns: minmax(95px, 0.38fr) minmax(0, 1fr); gap: 10px; align-items: center; padding: 9px 0; overflow-wrap: anywhere; }
+    .ta-staff-table td::before,
+    .ta-desk-table td::before,
+    .ta-client-table td::before { content: attr(data-label); color: var(--text-secondary, #687386); font-size: 12px; font-weight: 650; }
+    .ta-staff-table td[data-label="Staff member"],
+    .ta-client-table td[data-label="Client"] { align-items: start; }
+    .ta-table-actions { justify-content: flex-start; }
+    .ta-table select { width: 100%; min-width: 0; }
+    .ta-role-permissions li { grid-template-columns: minmax(0, 1fr); gap: 2px; }
 }
 
 .client-journey-milestone-row {
