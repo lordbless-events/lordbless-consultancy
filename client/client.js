@@ -574,6 +574,7 @@ function mapAuthenticatedClientJourney(journey) {
     const journeyState = window.LORDBLESS_JOURNEY_STATE;
     const stage = journeyState.normalizeStage(journey.stage);
     const operationalStatus = journeyState.normalizeOperationalStatus(journey.operational_status);
+    const isCompleted = operationalStatus === "completed" || stage === "completed";
     const statusLabel = journeyState.operationalStatusLabel(operationalStatus);
     const serviceLabel = journey.service || journey.journey_type || "Consultancy Service";
     const category = `${journey.journey_type || ""} ${serviceLabel}`.toLowerCase();
@@ -594,7 +595,7 @@ function mapAuthenticatedClientJourney(journey) {
         destination: journey.destination || "",
         service: serviceLabel,
         services: [serviceType],
-        status: operationalStatus === "completed" ? "completed" : "in_progress",
+        status: isCompleted ? "completed" : "in_progress",
         stage,
         operationalStatus,
         statusLabel,
@@ -633,7 +634,7 @@ async function loadAuthenticatedClientJourneys(clientId) {
 
     LORDBLESS_CLIENT_ACCOUNT.transactions = journeys;
     LORDBLESS_CLIENT_ACCOUNT.currentTransactionId =
-        journeys.find(journey => journey.operationalStatus === "active")?.id ||
+        journeys.find(journey => journey.operationalStatus === "active" && journey.stage !== "completed")?.id ||
         journeys[0]?.id ||
         null;
     clientApplicationJourneyId = LORDBLESS_CLIENT_ACCOUNT.currentTransactionId;
@@ -704,7 +705,8 @@ async function loadAuthenticatedClientDocuments(clientId) {
                 createdAt: item.created_at,
                 sentAt: item.sent_at,
                 viewedAt: item.viewed_at,
-                completedAt: item.completed_at
+                completedAt: item.completed_at,
+                databaseRequest: true
             }));
     } catch (error) {
         clientDocumentLoadError = error?.message || String(error);
@@ -729,7 +731,10 @@ async function markVisibleClientDocumentRequestsAsViewed() {
             if (error) throw error;
             if (clientId !== LORDBLESS_CLIENT_ACCOUNT.id) return;
             await loadAuthenticatedClientDocuments(clientId);
-            if (clientId === LORDBLESS_CLIENT_ACCOUNT.id) renderDocuments();
+            if (clientId === LORDBLESS_CLIENT_ACCOUNT.id) {
+                renderDocuments();
+                updateClientMessageBadge();
+            }
         } catch (error) {
             console.error("LORDBLESS DOCUMENT REQUEST VIEW STATUS ERROR:", error);
             const container = document.getElementById("document-centre-container");
@@ -873,7 +878,7 @@ async function loadClientOnboardingData(clientId) {
     clientConsultationNotifications = [];
     clientOnboardingDataError = "";
 
-    const [paymentResult, meetingResult, notificationsResult, appointmentNotificationsResult] = await Promise.all([
+    const [paymentResult, meetingResult, notificationsResult, appointmentNotificationsResult, appointmentsResult] = await Promise.all([
         lordblessSupabase
             .from("client_assessment_payment_status")
             .select("*")
@@ -893,7 +898,13 @@ async function loadClientOnboardingData(clientId) {
             .from("client_appointment_notifications")
             .select("id, client_id, appointment_id, event_type, title, message, created_at, read_at")
             .eq("client_id", clientId)
-            .order("created_at", { ascending: false })
+            .order("created_at", { ascending: false }),
+        Promise.resolve(lordblessSupabase
+            .from("client_appointments")
+            .select("id, title, starts_at, timezone, duration_minutes, channel, location, meeting_link, instructions, status")
+            .eq("client_id", clientId)
+            .order("starts_at", { ascending: true }))
+            .catch(error => ({ data: null, error }))
     ]);
 
     if (
@@ -932,6 +943,14 @@ async function loadClientOnboardingData(clientId) {
             }));
     }
 
+    if (appointmentsResult.error) {
+        console.warn("LORDBLESS CLIENT APPOINTMENTS UNAVAILABLE:", appointmentsResult.error.message);
+    }
+    const appointmentsById = new Map((appointmentsResult.data || []).map(appointment => [
+        String(appointment.id),
+        appointment
+    ]));
+
     if (appointmentNotificationsResult.error) {
         console.warn("LORDBLESS CLIENT APPOINTMENT MESSAGES UNAVAILABLE:", appointmentNotificationsResult.error.message);
     } else {
@@ -948,7 +967,9 @@ async function loadClientOnboardingData(clientId) {
                     createdAt: item.created_at,
                     read: Boolean(item.read_at),
                     databaseNotification: true,
-                    appointmentNotification: true
+                    appointmentNotification: true,
+                    appointment: appointmentsById.get(String(item.appointment_id)) || null,
+                    appointmentEvent: item.event_type
                 }))
         ];
     }
@@ -1194,6 +1215,7 @@ async function handleClientPortalSession(session) {
         }
 
         applyAuthenticatedClientRecord(client);
+        populateClientIdentity();
         await loadClientOnboardingData(client.id);
         if (account.access_status === "active") {
             await loadAuthenticatedClientJourneys(client.id);
@@ -1736,9 +1758,36 @@ function getClientMessages() {
         ? bridge.getMessages(clientId)
         : [];
     const messageMap = new Map();
-    [...clientConsultationNotifications, ...(Array.isArray(localMessages) ? localMessages : [])]
+    const documentRequestMessages = (LORDBLESS_CLIENT_ACCOUNT.documentRequests || [])
+        .filter(request => request?.databaseRequest === true && request.id && String(request.clientId || request.client_id || "") === String(clientId))
+        .map(request => {
+            const journey = (LORDBLESS_CLIENT_ACCOUNT.transactions || []).find(item =>
+                String(item.enquiryId || item.enquiry_id || "") === String(request.enquiryId || request.enquiry_id || "")
+            );
+            const requestStatus = String(request.status || "requested").toLowerCase();
+            return {
+                id: `NOTIF-DOCUMENT-REQUEST-${request.id}`,
+                clientId,
+                type: "document_request",
+                title: "New Document Required",
+                message: request.message || `Please submit ${request.documentName || request.document_name || "the requested document"}.`,
+                createdAt: request.createdAt || request.created_at || request.sentAt || request.sent_at,
+                read: requestStatus !== "requested",
+                documentRequestNotification: true,
+                documentRequestId: String(request.id),
+                documentName: request.documentName || request.document_name || "Requested document",
+                journeyTitle: journey?.title || journey?.destination || "",
+                requestStatus
+            };
+        });
+
+    [...(Array.isArray(localMessages) ? localMessages : []), ...clientConsultationNotifications, ...documentRequestMessages]
         .filter(message => message && String(message.clientId) === String(clientId))
-        .forEach(message => messageMap.set(String(message.id), message));
+        .forEach(message => {
+            const key = String(message.id);
+            const existing = messageMap.get(key);
+            messageMap.set(key, existing ? { ...existing, ...message } : message);
+        });
 
     return Array.from(messageMap.values()).sort((a, b) =>
         new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
@@ -1755,13 +1804,9 @@ function updateClientMessageBadge() {
         return;
     }
 
-    const bridge = window.LORDBLESS_PAYMENT_BRIDGE;
-    const clientId = LORDBLESS_CLIENT_ACCOUNT.id;
-    const localUnread = bridge && typeof bridge.getUnreadMessages === "function"
-        ? bridge.getUnreadMessages(clientId)
-        : [];
-    const databaseUnread = clientConsultationNotifications.filter(message => !message.read);
-    const unreadCount = (Array.isArray(localUnread) ? localUnread.length : 0) + databaseUnread.length;
+    const unreadCount = getClientMessages()
+        .filter(message => message.read !== true)
+        .length;
 
     badge.textContent = String(unreadCount);
     badge.hidden = unreadCount === 0;
@@ -1772,60 +1817,162 @@ function updateClientMessageBadge() {
 function renderClientMessages() {
 
     const container = document.getElementById("messages-container");
-
-    if (!container) {
-        return;
-    }
+    if (!container) return;
 
     updateClientMessageBadge();
-
     const messages = getClientMessages();
-
-    if (!messages.length) {
-        container.innerHTML = `
-            <div class="empty-state-card">
-                <div class="empty-state-icon">□</div>
-                <h3>No new messages</h3>
-                <p>There are currently no important notifications for your account.</p>
-            </div>
-        `;
-        return;
-    }
+    const newMessages = messages.filter(message => message.read !== true);
+    const previouslyRead = messages.filter(message => message.read === true);
 
     container.innerHTML = `
-        <div class="client-message-list">
-            ${messages.map(message => `
-                <article
-                    class="client-message-card${message.read ? "" : " is-unread"}"
-                    data-message-id="${escapeHTML(message.id)}"
-                    tabindex="0"
-                >
-                    <div class="client-message-card-content">
-                        <div class="client-message-card-heading">
-                            <h3>${escapeHTML(message.title || "Notification")}</h3>
-                            ${message.read ? "" : '<span class="client-message-unread-label">NEW</span>'}
-                        </div>
-                        <p>${escapeHTML(message.message || "")}</p>
-                        <time datetime="${escapeHTML(message.createdAt || "")}">${escapeHTML(formatClientMessageDate(message.createdAt))}</time>
-                    </div>
-                    ${message.type === "payment_verified" && message.actionView === "payments" ? `
-                        <button type="button" class="secondary-button" data-message-action="receipt" data-receipt-id="${escapeHTML(message.actionId || "")}">
-                            VIEW RECEIPT
-                        </button>
-                    ` : message.actionView === "payments" ? `
-                        <button type="button" class="secondary-button" data-message-action="payments">
-                            VIEW PAYMENT
-                        </button>
-                    ` : message.actionView === "documents" ? `
-                        <button type="button" class="secondary-button" data-message-action="documents">
-                            VIEW DOCUMENTS
-                        </button>
-                    ` : ""}
-                </article>
-            `).join("")}
+        <div class="client-message-sections">
+            <section class="client-message-section" aria-labelledby="new-client-messages-heading">
+                <div class="client-message-section-heading">
+                    <h3 id="new-client-messages-heading">New Messages</h3>
+                    <span>${newMessages.length}</span>
+                </div>
+                ${newMessages.length
+                    ? `<div class="client-message-list">${newMessages.map(renderClientMessageCard).join("")}</div>`
+                    : '<p class="client-message-empty">You have no new messages.</p>'}
+            </section>
+            <section class="client-message-section" aria-labelledby="read-client-messages-heading">
+                <div class="client-message-section-heading">
+                    <h3 id="read-client-messages-heading">Previously Read</h3>
+                    <span>${previouslyRead.length}</span>
+                </div>
+                ${previouslyRead.length
+                    ? `<div class="client-message-list">${previouslyRead.map(renderClientMessageCard).join("")}</div>`
+                    : '<p class="client-message-empty">Messages you read will remain here for reference.</p>'}
+            </section>
         </div>
     `;
+}
 
+
+function renderClientMessageCard(message) {
+    const appointmentState = message.appointmentNotification
+        ? getClientAppointmentState(message)
+        : null;
+    const appointment = message.appointment;
+    let meetingHref = "";
+
+    if (appointment?.meeting_link) {
+        try {
+            const url = new URL(appointment.meeting_link);
+            if (["https:", "http:"].includes(url.protocol)) meetingHref = url.href;
+        } catch (_) {
+            meetingHref = "";
+        }
+    }
+
+    return `
+        <article
+            class="client-message-card${message.read === true ? "" : " is-unread"}"
+            data-message-id="${escapeHTML(message.id)}"
+            tabindex="0"
+        >
+            <div class="client-message-card-content">
+                <div class="client-message-card-heading">
+                    <h3>${escapeHTML(message.title || "Notification")}</h3>
+                    ${message.read === true ? "" : '<span class="client-message-unread-label">NEW</span>'}
+                </div>
+                <p>${escapeHTML(message.message || "")}</p>
+                <time datetime="${escapeHTML(message.createdAt || "")}">${escapeHTML(formatClientMessageDate(message.createdAt))}</time>
+                ${message.documentRequestNotification ? `
+                    <div class="client-message-appointment">
+                        <strong>${escapeHTML(message.documentName)}</strong>
+                        ${message.journeyTitle ? `<span>Journey: ${escapeHTML(message.journeyTitle)}</span>` : ""}
+                        ${message.requestStatus === "requested" ? `<span>Request date: ${escapeHTML(formatClientMessageDate(message.createdAt))}</span>` : ""}
+                        <button type="button" class="secondary-button" data-message-action="document-request" data-document-request-id="${escapeHTML(message.documentRequestId)}">View Document Request</button>
+                    </div>
+                ` : ""}
+                ${appointmentState ? `
+                    <div class="client-message-appointment ${appointmentState.className}">
+                        ${appointment?.title ? `<h4>${escapeHTML(appointment.title)}</h4>` : ""}
+                        <strong>${escapeHTML(appointmentState.label)}</strong>
+                        ${appointment?.starts_at ? `<time datetime="${escapeHTML(appointment.starts_at)}">${escapeHTML(formatClientAppointmentDate(appointment))}</time>` : ""}
+                        ${appointment?.timezone ? `<span>Timezone: ${escapeHTML(appointment.timezone)}</span>` : ""}
+                        ${appointment?.duration_minutes ? `<span>Duration: ${escapeHTML(appointment.duration_minutes)} minutes</span>` : ""}
+                        ${appointment?.channel ? `<span>Channel: ${escapeHTML(String(appointment.channel).replaceAll("_", " "))}</span>` : ""}
+                        ${appointment?.channel === "online" && appointment?.meeting_link ? `<span>Platform: ${escapeHTML(getClientMeetingPlatform(appointment.meeting_link))}</span>` : ""}
+                        ${appointment?.location ? `<span>Location: ${escapeHTML(appointment.location)}</span>` : ""}
+                        ${appointment?.instructions ? `<p>${escapeHTML(appointment.instructions)}</p>` : ""}
+                        ${meetingHref ? `<a href="${escapeHTML(meetingHref)}" target="_blank" rel="noopener noreferrer" data-message-external-link>Join ${escapeHTML(getClientMeetingPlatform(appointment.meeting_link))} meeting</a>` : ""}
+                    </div>
+                ` : ""}
+            </div>
+            ${message.type === "payment_verified" && message.actionView === "payments" ? `
+                <button type="button" class="secondary-button" data-message-action="receipt" data-receipt-id="${escapeHTML(message.actionId || "")}">VIEW RECEIPT</button>
+            ` : message.actionView === "payments" ? `
+                <button type="button" class="secondary-button" data-message-action="payments">VIEW PAYMENT</button>
+            ` : message.actionView === "documents" ? `
+                <button type="button" class="secondary-button" data-message-action="documents">VIEW DOCUMENTS</button>
+            ` : ""}
+        </article>
+    `;
+}
+
+
+function getClientMeetingPlatform(meetingLink) {
+    try {
+        const hostname = new URL(meetingLink).hostname.toLowerCase().replace(/^www\./, "");
+        if (hostname.includes("zoom.us")) return "Zoom";
+        if (hostname.includes("meet.google.com")) return "Google Meet";
+        if (hostname.includes("teams.microsoft.com")) return "Microsoft Teams";
+        if (hostname.includes("webex.com")) return "Webex";
+        if (hostname.includes("wa.me") || hostname.includes("whatsapp.com")) return "WhatsApp";
+        return hostname || "Online meeting";
+    } catch (_) {
+        return "Online meeting";
+    }
+}
+
+
+function getClientAppointmentState(message, now = Date.now()) {
+    const appointment = message.appointment;
+    const status = String(appointment?.status || "").toLowerCase();
+
+    if (status === "cancelled" || message.appointmentEvent === "cancelled") {
+        return { label: "Cancelled appointment", className: "is-cancelled" };
+    }
+    if (status === "completed" || message.appointmentEvent === "completed") {
+        return { label: "Appointment marked completed", className: "is-completed" };
+    }
+
+    const startsAt = Date.parse(appointment?.starts_at || "");
+    if (!Number.isFinite(startsAt)) {
+        return { label: "Appointment details unavailable", className: "is-unknown" };
+    }
+    if (startsAt <= now) {
+        return { label: "Past appointment ? outcome not recorded", className: "is-past" };
+    }
+    if (status === "scheduled") {
+        return { label: "Upcoming appointment", className: "is-upcoming" };
+    }
+    return { label: "Appointment status unavailable", className: "is-unknown" };
+}
+
+
+function formatClientAppointmentDate(appointment) {
+    const date = new Date(appointment?.starts_at || "");
+    if (Number.isNaN(date.getTime())) return "Appointment time unavailable";
+
+    const options = {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        timeZone: appointment?.timezone || undefined,
+        timeZoneName: "short"
+    };
+
+    try {
+        return new Intl.DateTimeFormat("en-GB", options).format(date);
+    } catch (_) {
+        return new Intl.DateTimeFormat("en-GB", { ...options, timeZone: "UTC" }).format(date);
+    }
 }
 
 
@@ -1867,7 +2014,7 @@ function initialiseClientMessages() {
             const message = getClientMessages().find(item => String(item.id) === String(card.dataset.messageId));
             const bridge = window.LORDBLESS_PAYMENT_BRIDGE;
 
-            if (message?.databaseNotification) {
+            if (message?.databaseNotification && !message.documentRequestNotification && message.read !== true) {
                 message.read = true;
                 clientConsultationNotifications = clientConsultationNotifications.map(item =>
                     item.id === message.id ? { ...item, read: true } : item
@@ -1879,20 +2026,35 @@ function initialiseClientMessages() {
                     : lordblessSupabase.rpc("mark_client_consultation_notification_read", {
                         p_notification_id: message.id
                     });
-                void markRead.then(({ error }) => {
-                    if (error) {
+                void markRead.then(({ data, error }) => {
+                    const notMarked = Boolean(error) ||
+                        (!message.appointmentNotification && data !== true);
+                    if (notMarked) {
                         message.read = false;
                         clientConsultationNotifications = clientConsultationNotifications.map(item =>
                             item.id === message.id ? { ...item, read: false } : item
                         );
-                        console.error("Unable to mark consultation message as read:", error.message);
+                        console.error(
+                            "Unable to mark consultation message as read:",
+                            error?.message || "The notification was not confirmed as read."
+                        );
                     }
                     updateClientMessageBadge();
                     if (document.getElementById("view-messages")?.classList.contains("active")) {
                         renderClientMessages();
                     }
+                }).catch(error => {
+                    message.read = false;
+                    clientConsultationNotifications = clientConsultationNotifications.map(item =>
+                        item.id === message.id ? { ...item, read: false } : item
+                    );
+                    console.error("Unable to mark consultation message as read:", error);
+                    updateClientMessageBadge();
+                    if (document.getElementById("view-messages")?.classList.contains("active")) {
+                        renderClientMessages();
+                    }
                 });
-            } else if (bridge && typeof bridge.markMessageAsRead === "function") {
+            } else if (!message?.databaseNotification && !message?.documentRequestNotification && message?.read !== true && bridge && typeof bridge.markMessageAsRead === "function") {
                 bridge.markMessageAsRead(
                     card.dataset.messageId,
                     LORDBLESS_CLIENT_ACCOUNT.id
@@ -1901,7 +2063,20 @@ function initialiseClientMessages() {
 
             updateClientMessageBadge();
 
-            if (event.target.closest("[data-message-action='payments']")) {
+            if (event.target.closest("[data-message-action='document-request']")) {
+                const action = event.target.closest("[data-message-action='document-request']");
+                const requestId = action.dataset.documentRequestId;
+                showView("documents");
+                window.setTimeout(() => {
+                    const requestAction = Array.from(document.querySelectorAll("[data-request-id]"))
+                        .find(element => String(element.dataset.requestId) === String(requestId));
+                    const requestCard = requestAction?.closest(".document-request-item") || requestAction;
+                    if (requestCard) {
+                        requestCard.scrollIntoView({ behavior: "smooth", block: "center" });
+                        requestCard.focus?.({ preventScroll: true });
+                    }
+                }, 150);
+            } else if (event.target.closest("[data-message-action='payments']")) {
                 showView("payments");
             } else if (event.target.closest("[data-message-action='documents']")) {
                 showView("documents");
@@ -1920,6 +2095,12 @@ function initialiseClientMessages() {
                 if (receiptButton) {
                     receiptButton.click();
                 }
+            } else if (event.target.closest("a[href]")) {
+                window.setTimeout(() => {
+                    if (document.getElementById("view-messages")?.classList.contains("active")) {
+                        renderClientMessages();
+                    }
+                }, 0);
             } else {
                 renderClientMessages();
             }
@@ -2050,7 +2231,7 @@ function renderDashboard() {
 
     const active =
         transactions.filter(
-            transaction => transaction.operationalStatus === "active"
+            transaction => transaction.operationalStatus === "active" && transaction.status !== "completed"
         );
 
 
@@ -2111,12 +2292,6 @@ function renderDashboard() {
 
 
     setText(
-        "overview-journey-reference",
-        current.id
-    );
-
-
-    setText(
         "overview-journey-title",
         current.title
     );
@@ -2134,10 +2309,12 @@ function renderDashboard() {
     );
 
 
-    const isOnHold = current.operationalStatus === "on_hold";
+    const isCompleted = current.operationalStatus === "completed" || current.stage === "completed";
+    const isOnHold = current.operationalStatus === "on_hold" && !isCompleted;
     const journeyState = window.LORDBLESS_JOURNEY_STATE;
-    const isCompleted = current.operationalStatus === "completed";
-    const currentStatusLabel = journeyState.operationalStatusLabel(current.operationalStatus);
+    const currentStatusLabel = isCompleted
+        ? journeyState.operationalStatusLabel("completed")
+        : journeyState.operationalStatusLabel(current.operationalStatus);
     const heading = document.getElementById("overview-journey-heading");
     if (heading) {
         heading.textContent = isCompleted ? "Your Completed Journey" : isOnHold ? "Your Journey On Hold" : "Your Active Journey";
@@ -2402,21 +2579,22 @@ function renderTransactionHistory() {
 function createTransactionCard(transaction) {
     const isCurrent = transaction.id === LORDBLESS_CLIENT_ACCOUNT.currentTransactionId;
     const status = transaction.operationalStatus;
-    const isCompleted = status === "completed";
-    const statusClass = transaction.operationalStatus === "on_hold"
+    const isCompleted = status === "completed" || transaction.stage === "completed";
+    const statusClass = transaction.operationalStatus === "on_hold" && !isCompleted
         ? "on-hold"
         : isCompleted ? "completed" : "progress";
     const serviceInitial = getServiceInitial(transaction.services?.[0]);
     const journeyState = window.LORDBLESS_JOURNEY_STATE;
-    const statusLabel = journeyState.operationalStatusLabel(status);
+    const statusLabel = isCompleted
+        ? journeyState.operationalStatusLabel("completed")
+        : journeyState.operationalStatusLabel(status);
 
     return `
-        <article class="transaction-card ${isCurrent ? "current" : ""}">
+        <article class="transaction-card ${isCurrent ? "current" : ""} ${isCompleted ? "completed" : ""}">
             <div class="transaction-icon">${escapeHTML(serviceInitial)}</div>
             <div class="transaction-main">
                 <div class="transaction-top">
                     <div>
-                        <span class="transaction-reference">${escapeHTML(transaction.id)}</span>
                         <h3>${escapeHTML(transaction.title)}</h3>
                     </div>
                     <span class="transaction-status ${statusClass}">${escapeHTML(statusLabel)}</span>
@@ -2428,15 +2606,67 @@ function createTransactionCard(transaction) {
                     <span>Updated ${formatDate(transaction.updated)}</span>
                 </div>
                 <div class="transaction-progress-summary">
-                    <strong>Current stage: ${escapeHTML(journeyState.stageLabel(transaction.stage))}</strong>
-                    ${status === "on_hold" ? "<p>This journey is currently on hold. Your stage is preserved.</p>" : ""}
-                    <ol class="journey-stage-list">${journeyState.stages.map(stage => `<li class="${stage.value === transaction.stage ? "current" : ""}" ${stage.value === transaction.stage ? 'aria-current="step"' : ""}>${escapeHTML(stage.label)}${stage.value === transaction.stage ? " · Current" : ""}</li>`).join("")}</ol>
+                    <strong>Recorded stage: ${escapeHTML(journeyState.stageLabel(transaction.stage))}</strong>
+                    ${status === "on_hold" && !isCompleted ? "<p>This journey is currently on hold. Your stage is preserved.</p>" : ""}
+                    ${renderJourneyStageTimeline(transaction, journeyState)}
                 </div>
                 <div class="transaction-footer">
                     <button type="button" class="transaction-open-button" data-transaction-id="${escapeHTML(transaction.id)}">${isCurrent ? "Open Journey →" : "View Journey →"}</button>
                 </div>
             </div>
         </article>
+    `;
+}
+
+
+function renderJourneyStageTimeline(transaction, journeyState) {
+    const stages = journeyState.stages;
+    const recordedIndex = stages.findIndex(stage => stage.value === transaction.stage);
+    const completedJourney = transaction.operationalStatus === "completed" || transaction.stage === "completed";
+    const currentIndex = Math.max(0, recordedIndex);
+    const position = currentIndex + 1;
+    const progress = (position / stages.length) * 100;
+
+    return `
+        <div class="journey-timeline" aria-label="Journey stage history">
+            ${completedJourney ? `
+                <div class="journey-completed-banner" role="status">
+                    <span class="journey-completed-icon" aria-hidden="true">?</span>
+                    <div>
+                        <span>JOURNEY STATUS</span>
+                        <strong>Journey Completed</strong>
+                        <p>Historical stages are shown below. Individual stage completion records are unavailable.</p>
+                    </div>
+                </div>
+            ` : `
+                <div class="journey-timeline-summary">
+                    <span>Journey position</span>
+                    <strong>Stage ${position} of ${stages.length}</strong>
+                </div>
+                <div class="journey-timeline-track" role="progressbar" aria-label="Journey stage position" aria-valuemin="1" aria-valuemax="${stages.length}" aria-valuenow="${position}">
+                    <span style="width: ${progress}%"></span>
+                </div>
+            `}
+            <ol class="journey-stage-timeline">
+                ${stages.map((stage, index) => {
+                    const completed = transaction.stage === "completed" && stage.value === "completed";
+                    const current = !completedJourney && index === currentIndex;
+                    const lastSavedStage = completedJourney && transaction.stage !== "completed" && index === currentIndex;
+                    const earlier = !completedJourney && index < currentIndex;
+                    const state = completed ? "completed" : current || lastSavedStage ? "current" : completedJourney ? "history" : earlier ? "earlier" : "upcoming";
+                    const label = completed ? "Journey completed" : lastSavedStage ? "Last saved stage" : completedJourney ? "Historical stage ? completion not tracked" : current ? "Current phase" : earlier ? "Completion not tracked" : "Upcoming";
+                    return `
+                        <li class="journey-stage-item ${state}" ${current || completed || lastSavedStage ? 'aria-current="step"' : ""}>
+                            <span class="journey-stage-marker" aria-hidden="true">${completed ? "?" : ""}</span>
+                            <span class="journey-stage-copy">
+                                <strong>${escapeHTML(stage.label)}</strong>
+                                <small>${label}</small>
+                            </span>
+                        </li>
+                    `;
+                }).join("")}
+            </ol>
+        </div>
     `;
 }
 
@@ -2470,7 +2700,7 @@ function renderClientApplicationJourneyContext() {
             <select data-application-journey-select>
                 ${journeys.map(journey => `
                     <option value="${escapeHTML(journey.id)}" ${journey.id === clientApplicationJourneyId ? "selected" : ""}>
-                        ${escapeHTML(journey.title || journey.id)}
+                        ${escapeHTML(journey.title || "Journey")}
                     </option>
                 `).join("")}
             </select>

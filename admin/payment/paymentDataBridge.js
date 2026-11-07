@@ -1238,12 +1238,15 @@
                     return;
                 }
 
-                let formattedAmount = `${request.amount} ${request.currency || ""}`.trim();
+                const requestCurrency = String(
+                    request.currency || request.currencyCode || request.currency_code || request.primaryCurrency || "EUR"
+                ).trim().toUpperCase();
+                let formattedAmount = `${request.amount} ${requestCurrency}`.trim();
 
                 try {
                     formattedAmount = new Intl.NumberFormat("en-US", {
                         style: "currency",
-                        currency: request.currency || "EUR"
+                        currency: requestCurrency
                     }).format(Number(request.amount));
                 } catch (error) {
                     // Keep the explicit amount and currency fallback.

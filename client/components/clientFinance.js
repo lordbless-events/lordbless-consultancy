@@ -143,6 +143,29 @@
     }
 
 
+    function getPaymentCurrency(record) {
+
+        const nestedRequest = record?.paymentRequest || record?.payment_request || {};
+        const candidates = [
+            record?.currency,
+            record?.currency_code,
+            record?.currencyCode,
+            record?.primaryCurrency,
+            record?.paymentCurrency,
+            nestedRequest.currency,
+            nestedRequest.currency_code,
+            nestedRequest.currencyCode
+        ];
+
+        const currency = candidates
+            .map(value => String(value || "").trim().toUpperCase())
+            .find(value => ["EUR", "USD", "GHS"].includes(value));
+
+        return currency || CURRENCY_FALLBACK;
+
+    }
+
+
     function formatAmount(amount, currency) {
 
         const numericAmount =
@@ -414,9 +437,7 @@
                 ),
 
             currency:
-                normaliseCurrency(
-                    request.currency
-                ),
+                getPaymentCurrency(request),
 
             requestedDate:
                 request.requestedDate ||
@@ -501,10 +522,10 @@
                 ),
 
             currency:
-                normaliseCurrency(
-                    payment.currency ||
-                    payment.receivedCurrency
-                ),
+                getPaymentCurrency({
+                    ...payment,
+                    currency: payment.currency || payment.receivedCurrency
+                }),
 
             paymentDate:
                 payment.paymentDate ||
@@ -586,9 +607,7 @@
                 ),
 
             currency:
-                normaliseCurrency(
-                    receipt.currency
-                ),
+                getPaymentCurrency(receipt),
 
             issuedAt:
                 receipt.issuedAt ||

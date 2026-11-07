@@ -572,6 +572,53 @@ p {
     gap: 14px;
 }
 
+.client-message-sections {
+    display: grid;
+    gap: 28px;
+}
+
+.client-message-section {
+    min-width: 0;
+}
+
+.client-message-section-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.client-message-section-heading h3 {
+    margin: 0;
+    color: var(--navy-700);
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 19px;
+}
+
+.client-message-section-heading > span {
+    display: grid;
+    min-width: 26px;
+    height: 26px;
+    place-items: center;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: #f1eee8;
+    color: var(--text-600);
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.client-message-empty {
+    margin: 0;
+    padding: 16px 18px;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    color: var(--text-500);
+    background: rgba(255,255,255,0.66);
+    font-size: 13px;
+}
+
 .client-message-card {
     display: flex;
     align-items: center;
@@ -628,6 +675,51 @@ p {
     font-size: 9px;
     font-weight: 800;
     letter-spacing: 0.12em;
+}
+
+.client-message-appointment {
+    display: grid;
+    gap: 5px;
+    margin-top: 13px;
+    padding: 11px 13px;
+    border-left: 3px solid #9da3aa;
+    border-radius: 5px;
+    background: #f5f4f1;
+    color: var(--text-600);
+    font-size: 12px;
+}
+
+.client-message-appointment.is-upcoming {
+    border-left-color: #527666;
+    background: #f1f6f2;
+}
+
+.client-message-appointment.is-cancelled,
+.client-message-appointment.is-past {
+    border-left-color: #9b7755;
+}
+
+.client-message-appointment.is-completed {
+    border-left-color: #527666;
+}
+
+.client-message-appointment > strong {
+    color: var(--navy-700);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 10px;
+}
+
+.client-message-appointment p {
+    margin: 3px 0 0;
+}
+
+.client-message-appointment a {
+    width: fit-content;
+    color: var(--navy-700);
+    font-weight: 700;
+    text-decoration: underline;
+    text-underline-offset: 2px;
 }
 
 @media (max-width: 640px) {
@@ -4704,6 +4796,188 @@ input:focus-visible {
     height: 100%;
     border-radius: inherit;
     background: var(--champagne-500);
+}
+
+.journey-timeline {
+    min-width: 0;
+    margin-top: 14px;
+}
+
+.transaction-card.completed {
+    border-color: #cedbd1;
+    background: linear-gradient(135deg, #fff 0%, #f7faf7 100%);
+}
+
+.journey-completed-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 13px;
+    margin-bottom: 14px;
+    padding: 15px 17px;
+    border: 1px solid #cddbd0;
+    border-radius: 10px;
+    background: #eef5ef;
+}
+
+.journey-completed-icon {
+    display: grid;
+    flex: 0 0 26px;
+    width: 26px;
+    height: 26px;
+    place-items: center;
+    border-radius: 50%;
+    background: #527666;
+    color: #fff;
+    font-weight: 800;
+}
+
+.journey-completed-banner > div {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+}
+
+.journey-completed-banner > div > span {
+    color: #527666;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+}
+
+.journey-completed-banner strong {
+    color: var(--navy-700);
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 18px;
+}
+
+.journey-completed-banner p {
+    margin: 2px 0 0;
+    color: var(--text-500);
+    font-size: 11px;
+}
+
+.journey-timeline-summary {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 6px 12px;
+    margin-bottom: 8px;
+    color: var(--text-500);
+    font-size: 12px;
+}
+
+.journey-timeline-summary strong {
+    color: var(--navy-700);
+}
+
+.journey-timeline-track {
+    height: 6px;
+    overflow: hidden;
+    margin-bottom: 14px;
+    border-radius: 999px;
+    background: #e7e3db;
+}
+
+.journey-timeline-track > span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--champagne-500);
+    transition: width 180ms ease;
+}
+
+.journey-stage-timeline {
+    display: grid;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.journey-stage-item {
+    position: relative;
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr);
+    gap: 10px;
+    min-height: 50px;
+}
+
+.journey-stage-item:not(:last-child)::after {
+    position: absolute;
+    top: 20px;
+    bottom: -1px;
+    left: 9px;
+    width: 2px;
+    background: #dedbd4;
+    content: "";
+}
+
+.journey-stage-item.completed:not(:last-child)::after {
+    background: #678678;
+}
+
+.journey-stage-marker {
+    z-index: 1;
+    display: grid;
+    width: 20px;
+    height: 20px;
+    place-items: center;
+    border: 2px solid #a9aaa7;
+    border-radius: 50%;
+    background: #a9aaa7;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.journey-stage-item.current .journey-stage-marker {
+    border-color: var(--champagne-600, #9b7755);
+    background: #fff;
+    box-shadow: inset 0 0 0 4px #fff, 0 0 0 2px rgba(155, 119, 85, 0.18);
+}
+
+.journey-stage-item.current .journey-stage-marker::before {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--champagne-600, #9b7755);
+    content: "";
+}
+
+.journey-stage-item.completed .journey-stage-marker {
+    border-color: #527666;
+    background: #527666;
+}
+
+.journey-stage-copy {
+    display: grid;
+    align-content: start;
+    gap: 3px;
+    min-width: 0;
+    padding: 1px 0 14px;
+}
+
+.journey-stage-copy strong {
+    color: var(--text-700);
+    font-size: 13px;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.journey-stage-copy small {
+    color: var(--text-500);
+    font-size: 11px;
+}
+
+.journey-stage-item.current .journey-stage-copy strong,
+.journey-stage-item.completed .journey-stage-copy strong {
+    color: var(--navy-700);
+}
+
+.journey-stage-item.upcoming .journey-stage-copy,
+.journey-stage-item.earlier .journey-stage-copy,
+.journey-stage-item.history .journey-stage-copy {
+    opacity: 0.78;
 }
 
 .client-journey-milestones {
