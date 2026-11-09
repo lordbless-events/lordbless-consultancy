@@ -326,6 +326,25 @@
                 data.clientId ||
                 null,
 
+            clientName:
+                data.clientName ||
+                data.client?.fullName ||
+                data.client?.full_name ||
+                data.client?.name ||
+                "",
+
+            clientEmail:
+                data.clientEmail ||
+                data.client?.email ||
+                "",
+
+            clientCode:
+                data.clientCode ||
+                data.client_code ||
+                data.client?.clientCode ||
+                data.client?.client_code ||
+                "",
+
             transactionId:
                 data.transactionId ||
                 null,

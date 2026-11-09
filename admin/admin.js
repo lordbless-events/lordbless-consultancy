@@ -1348,6 +1348,25 @@ function normaliseFinancePaymentRequest(
     const now =
         new Date().toISOString();
 
+    const supportedCurrencies = ["GHS", "EUR", "USD"];
+    const currency = [
+        payload.currency,
+        payload.currencyCode,
+        payload.currency_code,
+        payload.primaryCurrency,
+        payload.primary_currency,
+        payload.paymentCurrency,
+        payload.payment_currency,
+        payload.requestCurrency,
+        payload.request_currency
+    ]
+        .map(value => String(value || "").trim().toUpperCase())
+        .find(value => supportedCurrencies.includes(value)) || "EUR";
+
+    const amount = Number(
+        payload.total ?? payload.amount ?? payload.amountDue ?? payload.amount_due ?? 0
+    );
+
     return {
 
         id:
@@ -1367,13 +1386,36 @@ function normaliseFinancePaymentRequest(
 
         clientId:
             payload.clientId ||
+            payload.client_id ||
+            payload.client?.id ||
             context.clientId ||
             null,
 
         clientName:
+            payload.clientName ||
+            payload.client_name ||
             payload.client?.name ||
+            payload.client?.fullName ||
+            payload.client?.full_name ||
+            [payload.client?.firstName, payload.client?.lastName].filter(Boolean).join(" ") ||
             context.clientName ||
             "Client",
+
+        clientEmail:
+            payload.clientEmail ||
+            payload.client_email ||
+            payload.client?.email ||
+            payload.client?.emailAddress ||
+            context.clientEmail ||
+            "",
+
+        clientCode:
+            payload.clientCode ||
+            payload.client_code ||
+            payload.client?.clientCode ||
+            payload.client?.client_code ||
+            context.clientCode ||
+            "",
 
         transactionId:
             payload.transactionId ||
@@ -1404,11 +1446,10 @@ function normaliseFinancePaymentRequest(
             "Payment Request",
 
         amount:
-            Number(payload.total) || 0,
+            Number.isFinite(amount) ? amount : 0,
 
         currency:
-            payload.primaryCurrency ||
-            "EUR",
+            currency,
 
         requestedDate:
             payload.createdAt ||

@@ -1229,41 +1229,86 @@
                         request
                     );
 
-                const persistedRequest = window.LORDBLESS_PAYMENT_BRIDGE
-                    .load()
-                    .paymentRequests
-                    .find(item => item && item.id === request.id);
+                if (!savedRequest) return;
 
-                if (!savedRequest || !persistedRequest) {
-                    return;
-                }
+                // Admin normalizes and saves the selected request synchronously
+                // during this same event. Read that final saved record before
+                // creating its notification so both records share one payload.
+                window.setTimeout(() => {
+                    const persistedRequest = window.LORDBLESS_PAYMENT_BRIDGE
+                        .load()
+                        .paymentRequests
+                        .find(item => item && item.id === request.id);
 
-                const requestCurrency = String(
-                    request.currency || request.currencyCode || request.currency_code || request.primaryCurrency || "EUR"
-                ).trim().toUpperCase();
-                let formattedAmount = `${request.amount} ${requestCurrency}`.trim();
+                    if (!persistedRequest?.clientId) return;
 
-                try {
-                    formattedAmount = new Intl.NumberFormat("en-US", {
-                        style: "currency",
-                        currency: requestCurrency
-                    }).format(Number(request.amount));
-                } catch (error) {
-                    // Keep the explicit amount and currency fallback.
-                }
+                    const amount = Number(
+                        persistedRequest.total ??
+                        persistedRequest.amount ??
+                        persistedRequest.amountDue ??
+                        persistedRequest.amount_due
+                    );
+                    const requestCurrency = [
+                        persistedRequest.currency,
+                        persistedRequest.currencyCode,
+                        persistedRequest.currency_code,
+                        persistedRequest.primaryCurrency,
+                        persistedRequest.primary_currency,
+                        persistedRequest.paymentCurrency,
+                        persistedRequest.payment_currency,
+                        persistedRequest.requestCurrency,
+                        persistedRequest.request_currency
+                    ]
+                        .map(value => String(value || "").trim().toUpperCase())
+                        .find(value => ["GHS", "EUR", "USD"].includes(value)) || "EUR";
 
-                window.LORDBLESS_PAYMENT_BRIDGE.saveMessage({
-                    id: `NOTIF-${request.id}`,
-                    clientId: request.clientId,
-                    type: "payment_request",
-                    title: "New Payment Request",
-                    message: `A new payment request of ${formattedAmount} has been created for your account.`,
-                    createdAt: new Date().toISOString(),
-                    read: false,
-                    readAt: null,
-                    actionView: "payments",
-                    actionId: request.id
-                });
+                    if (!Number.isFinite(amount)) return;
+
+                    let formattedAmount = `${requestCurrency} ${amount.toFixed(2)}`;
+                    try {
+                        formattedAmount = new Intl.NumberFormat("en-GB", {
+                            style: "currency",
+                            currency: requestCurrency,
+                            currencyDisplay: "code",
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
+                        }).format(amount);
+                    } catch (error) {
+                        // Keep the explicit amount and currency fallback.
+                    }
+
+                    const reference = persistedRequest.reference ||
+                        persistedRequest.invoiceNumber ||
+                        persistedRequest.invoice_number || "";
+                    const createdAt = persistedRequest.createdAt ||
+                        persistedRequest.created_at ||
+                        persistedRequest.requestedDate ||
+                        new Date().toISOString();
+
+                    window.LORDBLESS_PAYMENT_BRIDGE.saveMessage({
+                        id: `NOTIF-${persistedRequest.id}`,
+                        clientId: persistedRequest.clientId,
+                        clientName: persistedRequest.clientName || "",
+                        clientCode: persistedRequest.clientCode || persistedRequest.client_code || "",
+                        type: "payment_request",
+                        title: "New Payment Request",
+                        message: `A new payment request of ${formattedAmount} has been created for your account.${reference ? ` Payment reference: ${reference}.` : ""}`,
+                        paymentRequestId: persistedRequest.id,
+                        paymentRequestReference: reference,
+                        amount,
+                        currency: requestCurrency,
+                        createdAt,
+                        read: false,
+                        readAt: null,
+                        actionView: "payments",
+                        actionId: persistedRequest.id
+                    });
+
+                    console.log(
+                        "LORDBLESS PAYMENT BRIDGE: Payment request notification synchronized from the saved record.",
+                        persistedRequest
+                    );
+                }, 0);
 
 
                 console.log(

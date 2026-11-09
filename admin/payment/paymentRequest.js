@@ -257,6 +257,17 @@
     }
 
 
+    function getClientCode(client) {
+
+        if (!client) {
+            return "";
+        }
+
+        return client.clientCode || client.client_code || client.code || "";
+
+    }
+
+
     function getJourneyId(journey) {
 
         if (!journey) {
@@ -480,6 +491,11 @@
 
                 clientId:
                     data.clientId,
+
+                clientCode:
+                    data.clientCode ||
+                    data.client_code ||
+                    "",
 
                 clientName:
                     data.clientName ||
@@ -909,6 +925,10 @@
 
             clientEmail:
                 formData.clientEmail ||
+                "",
+
+            clientCode:
+                formData.clientCode ||
                 "",
 
             journeyId:
@@ -1832,6 +1852,10 @@
             getClientEmail(client);
 
 
+        const clientCode =
+            getClientCode(client);
+
+
         const journeyId =
             getJourneyId(journey);
 
@@ -1960,6 +1984,12 @@
                             type="hidden"
                             name="clientEmail"
                             value="${escapeHtml(clientEmail)}"
+                        >
+
+                        <input
+                            type="hidden"
+                            name="clientCode"
+                            value="${escapeHtml(clientCode)}"
                         >
 
                         <input
