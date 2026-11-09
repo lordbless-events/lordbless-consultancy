@@ -2606,7 +2606,7 @@ function createTransactionCard(transaction) {
                     <span>Updated ${formatDate(transaction.updated)}</span>
                 </div>
                 <div class="transaction-progress-summary">
-                    <strong>Recorded stage: ${escapeHTML(journeyState.stageLabel(transaction.stage))}</strong>
+                    ${isCompleted ? "" : `<strong>Current stage: ${escapeHTML(journeyState.stageLabel(transaction.stage))}</strong>`}
                     ${status === "on_hold" && !isCompleted ? "<p>This journey is currently on hold. Your stage is preserved.</p>" : ""}
                     ${renderJourneyStageTimeline(transaction, journeyState)}
                 </div>
@@ -2631,7 +2631,7 @@ function renderJourneyStageTimeline(transaction, journeyState) {
         <div class="journey-timeline" aria-label="Journey stage history">
             ${completedJourney ? `
                 <div class="journey-completed-banner" role="status">
-                    <span class="journey-completed-icon" aria-hidden="true">?</span>
+                    <span class="journey-completed-icon" aria-hidden="true">✓</span>
                     <div>
                         <span>JOURNEY STATUS</span>
                         <strong>Journey Completed</strong>
@@ -2654,13 +2654,23 @@ function renderJourneyStageTimeline(transaction, journeyState) {
                     const lastSavedStage = completedJourney && transaction.stage !== "completed" && index === currentIndex;
                     const earlier = !completedJourney && index < currentIndex;
                     const state = completed ? "completed" : current || lastSavedStage ? "current" : completedJourney ? "history" : earlier ? "earlier" : "upcoming";
-                    const label = completed ? "Journey completed" : lastSavedStage ? "Last saved stage" : completedJourney ? "Historical stage ? completion not tracked" : current ? "Current phase" : earlier ? "Completion not tracked" : "Upcoming";
+                    const label = completed
+                        ? "Journey completed"
+                        : lastSavedStage
+                            ? "Last saved stage"
+                            : completedJourney
+                                ? ""
+                                : current
+                                    ? "Current phase"
+                                    : earlier
+                                        ? "Earlier stage"
+                                        : "Upcoming";
                     return `
                         <li class="journey-stage-item ${state}" ${current || completed || lastSavedStage ? 'aria-current="step"' : ""}>
-                            <span class="journey-stage-marker" aria-hidden="true">${completed ? "?" : ""}</span>
+                            <span class="journey-stage-marker" aria-hidden="true">${completed ? "✓" : ""}</span>
                             <span class="journey-stage-copy">
                                 <strong>${escapeHTML(stage.label)}</strong>
-                                <small>${label}</small>
+                                ${label ? `<small>${label}</small>` : ""}
                             </span>
                         </li>
                     `;

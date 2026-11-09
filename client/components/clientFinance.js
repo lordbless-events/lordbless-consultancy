@@ -834,45 +834,41 @@
 
    function getGlobalPaymentRequests() {
 
-    if (
-        Array.isArray(
-            window.LORDBLESS_PAYMENT_REQUESTS
-        )
-    ) {
+        const mirroredRequests = Array.isArray(window.LORDBLESS_PAYMENT_REQUESTS)
+            ? window.LORDBLESS_PAYMENT_REQUESTS
+            : [];
+        const bridgeData = window.LORDBLESS_PAYMENT_BRIDGE &&
+            typeof window.LORDBLESS_PAYMENT_BRIDGE.load === "function"
+            ? window.LORDBLESS_PAYMENT_BRIDGE.load()
+            : null;
+        const savedRequests = Array.isArray(bridgeData?.paymentRequests)
+            ? bridgeData.paymentRequests
+            : [];
 
-        return (
-            window.LORDBLESS_PAYMENT_REQUESTS
-        );
-
-    }
-
-
-    if (
-        window.LORDBLESS_PAYMENT_BRIDGE &&
-        typeof window.LORDBLESS_PAYMENT_BRIDGE.load === "function"
-    ) {
-
-        const bridgeData =
-            window.LORDBLESS_PAYMENT_BRIDGE.load();
-
-
-        if (
-            bridgeData &&
-            Array.isArray(
-                bridgeData.paymentRequests
-            )
-        ) {
-
-            return bridgeData.paymentRequests;
-
-        }
+        return mergePaymentRequestSources(mirroredRequests, savedRequests);
 
     }
 
 
-    return [];
+    function mergePaymentRequestSources(mirroredRequests, savedRequests) {
+        const records = new Map();
+        const withoutId = [];
 
-}
+        [...(Array.isArray(mirroredRequests) ? mirroredRequests : []),
+            ...(Array.isArray(savedRequests) ? savedRequests : [])]
+            .forEach(request => {
+                if (!request) return;
+                const id = request.id || request.paymentRequestId || request.requestId;
+                if (!id) {
+                    withoutId.push(request);
+                    return;
+                }
+                // The payment bridge is appended last and contains the saved request.
+                records.set(String(id), request);
+            });
+
+        return [...records.values(), ...withoutId];
+    }
 
 
     function getGlobalReceipts() {
@@ -933,11 +929,10 @@
             getClientId(client);
 
 
-      const paymentRequests =
-    Array.isArray(data.paymentRequests) &&
-    data.paymentRequests.length
-        ? data.paymentRequests
-        : getGlobalPaymentRequests();
+        const paymentRequests = mergePaymentRequestSources(
+            Array.isArray(data.paymentRequests) ? data.paymentRequests : [],
+            getGlobalPaymentRequests()
+        );
 
         const assessmentPayment = data.assessmentPayment || null;
         const filteredPaymentRequests = Array.isArray(paymentRequests)
