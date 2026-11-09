@@ -6662,7 +6662,8 @@ input[type="checkbox"]:focus-visible {
     grid-template-columns:
         minmax(0, 1.6fr)
         minmax(130px, .8fr)
-        minmax(110px, .6fr);
+        minmax(110px, .6fr)
+        auto;
 
     align-items: center;
 
@@ -6699,6 +6700,70 @@ input[type="checkbox"]:focus-visible {
 .lbc-finance-payment-row > div:nth-child(2) strong {
     color: #9a8157;
     font-size: 13px;
+}
+
+.lbc-finance-request-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.lbc-finance-request-actions [data-payment-request-cancel] {
+    border-color: #c77970;
+    color: #9a4138;
+}
+
+.lbc-finance-request-cancellation,
+.lbc-finance-request-history {
+    color: #8b5e52;
+    font-size: 11px;
+}
+
+.lbc-finance-request-history summary {
+    cursor: pointer;
+    font-weight: 700;
+}
+
+.lbc-finance-request-history p {
+    margin: 6px 0 0;
+    color: #68707d;
+}
+
+.lbc-finance-request-editor form {
+    display: grid;
+    gap: 14px;
+}
+
+.lbc-finance-request-editor form label {
+    display: grid;
+    gap: 6px;
+    color: #515b6b;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.lbc-finance-request-editor input,
+.lbc-finance-request-editor select,
+.lbc-finance-request-editor textarea {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px 11px;
+    border: 1px solid #dedbd4;
+    border-radius: 8px;
+    color: #263044;
+    font: inherit;
+}
+
+.lbc-finance-request-form-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.lbc-finance-request-identity {
+    margin: 0 0 16px;
+    color: #68707d;
+    font-size: 12px;
 }
 
 
@@ -6747,6 +6812,14 @@ input[type="checkbox"]:focus-visible {
         flex: 1;
     }
 
+    .lbc-finance-payment-row {
+        grid-template-columns: minmax(0, 1fr) minmax(120px, .7fr);
+    }
+
+    .lbc-finance-request-actions {
+        grid-column: 1 / -1;
+    }
+
 }
 
 
@@ -6764,6 +6837,14 @@ input[type="checkbox"]:focus-visible {
     }
 
     .lbc-finance-payment-row {
+        grid-template-columns: 1fr;
+    }
+
+    .lbc-finance-request-actions {
+        justify-content: flex-start;
+    }
+
+    .lbc-finance-request-form-grid {
         grid-template-columns: 1fr;
     }
 

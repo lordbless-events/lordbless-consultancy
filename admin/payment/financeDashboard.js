@@ -76,6 +76,8 @@
 
     };
 
+    let paymentRequestProtectionData = null;
+
 
     /* =========================================================
        HELPERS
@@ -322,13 +324,17 @@
                 "EUR",
 
             status:
-                payment.status ||
-                "requested",
+                String(payment.status || "requested")
+                    .trim()
+                    .toLowerCase()
+                    .replace(/[\s-]+/g, "_"),
 
             verificationStatus:
                 payment.verificationStatus ||
                 payment.verification_status ||
                 "not_verified",
+
+            invoiceId: payment.invoiceId || payment.invoice_id || null,
 
             purpose:
                 payment.purpose || payment.requestType || null,
@@ -349,7 +355,18 @@
             createdAt:
                 payment.createdAt ||
                 payment.created_at ||
-                null
+                null,
+
+            updatedAt:
+                payment.updatedAt || payment.updated_at || null,
+
+            cancellationReason:
+                payment.cancellationReason || payment.cancellation_reason || "",
+
+            modificationHistory:
+                Array.isArray(payment.modificationHistory)
+                    ? payment.modificationHistory
+                    : []
 
         };
 
@@ -1182,6 +1199,8 @@
         clientId
     ) {
 
+        paymentRequestProtectionData = window.LORDBLESS_PAYMENT_BRIDGE?.load?.() || null;
+
         const account =
             buildClientAccounts()
                 .find(
@@ -1352,12 +1371,26 @@
                 close
             );
 
+        overlay.querySelectorAll("[data-payment-request-edit]").forEach(button => {
+            button.addEventListener("click", () => openEditPaymentRequest(button.dataset.paymentRequestEdit, close));
+        });
+
+        overlay.querySelectorAll("[data-payment-request-cancel]").forEach(button => {
+            button.addEventListener("click", () => cancelPaymentRequest(button.dataset.paymentRequestCancel, close));
+        });
+
     }
 
 
     function renderPaymentRow(
         payment
     ) {
+
+        const canManage = canManagePaymentRequests();
+        const canChange = canChangePaymentRequest(payment);
+        const changes = Array.isArray(payment.modificationHistory)
+            ? payment.modificationHistory
+            : [];
 
         return `
 
@@ -1378,6 +1411,19 @@
                             payment.transactionTitle
                         )}
                     </span>
+
+                    ${payment.cancellationReason ? `
+                        <small class="lbc-finance-request-cancellation">
+                            Cancellation reason: ${escapeHTML(payment.cancellationReason)}
+                        </small>
+                    ` : ""}
+
+                    ${changes.length ? `
+                        <details class="lbc-finance-request-history">
+                            <summary>${changes.length} recorded change${changes.length === 1 ? "" : "s"}</summary>
+                            ${changes.slice().reverse().map(renderPaymentRequestChange).join("")}
+                        </details>
+                    ` : ""}
 
                 </div>
 
@@ -1426,10 +1472,365 @@
 
                 </div>
 
+                ${canManage && canChange ? `
+                    <div class="lbc-finance-request-actions">
+                        <button type="button" class="lbc-btn lbc-btn-secondary" data-payment-request-edit="${escapeHTML(payment.id)}">Edit</button>
+                        <button type="button" class="lbc-btn lbc-btn-danger" data-payment-request-cancel="${escapeHTML(payment.id)}">Cancel</button>
+                    </div>
+                ` : ""}
+
             </div>
 
         `;
 
+    }
+
+
+    function canManagePaymentRequests() {
+        return typeof getCurrentUser === "function" &&
+            typeof hasPermission === "function" &&
+            hasPermission(getCurrentUser(), "finance.requests");
+    }
+
+
+    function renderPaymentRequestChange(change) {
+        const previous = change.previous || {};
+        const current = change.current || {};
+        const fields = [
+            ["Service / journey", "transactionTitle"],
+            ["Service details", "service"],
+            ["Description", "description"],
+            ["Amount", "amount"],
+            ["Currency", "currency"],
+            ["Due date", "dueDate"],
+            ["Payment instructions", "paymentInstructions"],
+            ["Status", "status"]
+        ];
+        const differences = fields.filter(([, key]) =>
+            String(previous[key] ?? "") !== String(current[key] ?? "")
+        );
+
+        return `
+            <p>
+                <strong>${escapeHTML(change.action || "Updated")}</strong>
+                · ${escapeHTML(formatDate(change.changedAt))}
+                ${change.changedByName ? `· ${escapeHTML(change.changedByName)}` : ""}
+                ${differences.length ? `<br>${differences.map(([label, key]) => {
+                    const oldValue = key === "amount"
+                        ? formatAmount(previous[key], previous.currency || "EUR")
+                        : previous[key] || "—";
+                    const newValue = key === "amount"
+                        ? formatAmount(current[key], current.currency || previous.currency || "EUR")
+                        : current[key] || "—";
+                    return `${escapeHTML(label)}: ${escapeHTML(oldValue)} → ${escapeHTML(newValue)}`;
+                }).join("<br>")}` : ""}
+                ${change.reason ? `<br>Reason: ${escapeHTML(change.reason)}` : ""}
+            </p>
+        `;
+    }
+
+
+    function normaliseRequestStatus(value) {
+        return String(value || "")
+            .trim()
+            .toLowerCase()
+            .replace(/[\s-]+/g, "_");
+    }
+
+
+    function getRequestForChange(requestId) {
+        const bridge = window.LORDBLESS_PAYMENT_BRIDGE;
+        if (!bridge || typeof bridge.getPaymentRequest !== "function") return null;
+        return bridge.getPaymentRequest(requestId);
+    }
+
+
+    function getRequestProtection(request) {
+        const status = normaliseRequestStatus(request?.status);
+        const verification = normaliseRequestStatus(request?.verificationStatus || request?.verification_status);
+        const purpose = String(request?.purpose || request?.requestType || "").toLowerCase();
+
+        if (!request || !request.id) return "This payment request is unavailable.";
+        if (request.databaseAssessment || purpose === "initial_assessment_consultation" || /initial assessment.*consultation/i.test(purpose)) {
+            return "Assessment payment requests are managed by the assessment payment workflow.";
+        }
+        if (["paid", "verified", "confirmed"].includes(status) || verification === "verified" ||
+            request.receiptId || request.receipt_id || request.paidAt || request.paid_at || request.verifiedAt || request.verified_at) {
+            return "Paid or receipted requests cannot be changed.";
+        }
+        if (request.invoiceId || request.invoice_id) {
+            return "An invoice is linked to this request, so it cannot be changed through this screen.";
+        }
+        if (["cancelled", "canceled", "voided", "refunded"].includes(status)) {
+            return "This payment request is already closed.";
+        }
+        if (["pending", "submitted", "payment_pending", "payment_submitted", "client_payment_submitted", "awaiting_verification", "under_review"].includes(status) ||
+            ["pending", "submitted", "under_review"].includes(verification)) {
+            return "A payment claim is being verified. This request is protected from changes.";
+        }
+
+        const bridge = window.LORDBLESS_PAYMENT_BRIDGE;
+        const data = paymentRequestProtectionData || bridge?.load?.();
+        const linkedRecords = Array.isArray(data?.paymentRecords)
+            ? data.paymentRecords.filter(record => String(record.paymentRequestId || record.payment_request_id || "") === String(request.id))
+            : [];
+        if (linkedRecords.some(record => {
+            const recordStatus = normaliseRequestStatus(record.status);
+            const recordVerification = normaliseRequestStatus(record.verificationStatus || record.verification_status);
+            return !["rejected", "cancelled", "canceled", "voided"].includes(recordStatus) &&
+                !["rejected", "cancelled", "canceled"].includes(recordVerification);
+        })) {
+            return "A payment submission is linked to this request. Resolve its verification before changing the request.";
+        }
+
+        const receipts = Array.isArray(data?.receipts) ? data.receipts : [];
+        if (receipts.some(receipt =>
+            String(receipt.paymentRequestId || receipt.payment_request_id || "") === String(request.id) ||
+            String(receipt.paymentRequestReference || receipt.payment_request_reference || "") === String(request.reference || "")
+        )) {
+            return "A receipt is linked to this request, so it cannot be changed.";
+        }
+
+        return "";
+    }
+
+
+    function canChangePaymentRequest(payment) {
+        if (!canManagePaymentRequests()) return false;
+        return !getRequestProtection(payment);
+    }
+
+
+    function getStaffActor() {
+        const user = typeof getCurrentUser === "function" ? getCurrentUser() : null;
+        return {
+            id: user?.id || user?.user_id || user?.userId || null,
+            name: user?.name || user?.fullName || user?.full_name || user?.email || "Authorised staff"
+        };
+    }
+
+
+    function getRequestSnapshot(request) {
+        return {
+            clientId: request.clientId || request.client_id || null,
+            clientName: request.clientName || request.client_name || "",
+            clientEmail: request.clientEmail || request.client_email || "",
+            clientCode: request.clientCode || request.client_code || "",
+            transactionTitle: request.transactionTitle || request.transaction_title || "",
+            service: request.service || "",
+            description: request.description || "",
+            amount: Number(request.amount ?? request.total ?? 0),
+            currency: String(request.currency || request.primaryCurrency || "EUR").toUpperCase(),
+            dueDate: request.dueDate || request.due_date || "",
+            paymentInstructions: request.paymentInstructions || request.payment_instructions || "",
+            status: normaliseRequestStatus(request.status)
+        };
+    }
+
+
+    function updateExistingRequestNotification(request, cancelled = false) {
+        const bridge = window.LORDBLESS_PAYMENT_BRIDGE;
+        if (!bridge || typeof bridge.load !== "function" || typeof bridge.save !== "function") return;
+
+        const data = bridge.load();
+        const notification = data.messages.find(message => message && message.id === `NOTIF-${request.id}`);
+        if (!notification) return;
+
+        const currency = String(request.currency || "EUR").toUpperCase();
+        const amount = Number(request.amount ?? request.total ?? 0);
+        let formattedAmount = `${currency} ${amount.toFixed(2)}`;
+        try {
+            formattedAmount = new Intl.NumberFormat("en-GB", {
+                style: "currency", currency, currencyDisplay: "code",
+                minimumFractionDigits: 2, maximumFractionDigits: 2
+            }).format(amount);
+        } catch (error) { /* Keep explicit currency formatting. */ }
+
+        notification.title = cancelled ? "Payment Request Cancelled" : "Payment Request Updated";
+        notification.message = cancelled
+            ? `Payment request ${request.reference || ""} has been cancelled. No payment is due.`
+            : `Payment request ${request.reference || ""} was updated. The current amount is ${formattedAmount}.`;
+        notification.amount = amount;
+        notification.currency = currency;
+        notification.paymentRequestId = request.id;
+        notification.paymentRequestReference = request.reference || notification.paymentRequestReference || "";
+
+        if (bridge.save(data)) {
+            window.dispatchEvent(new CustomEvent("lordbless:payment-data-updated", {
+                detail: { type: "message-created", payload: notification }
+            }));
+        }
+    }
+
+
+    function saveRequestChange(request, action, reason, updates, closeDetails) {
+        if (!canManagePaymentRequests()) {
+            window.alert("You are not authorised to manage payment requests.");
+            return false;
+        }
+
+        paymentRequestProtectionData = window.LORDBLESS_PAYMENT_BRIDGE?.load?.() || null;
+        const latest = getRequestForChange(request.id);
+        const protection = getRequestProtection(latest);
+        if (protection) {
+            window.alert(protection);
+            return false;
+        }
+
+        const bridge = window.LORDBLESS_PAYMENT_BRIDGE;
+        if (!bridge || typeof bridge.updatePaymentRequest !== "function") {
+            window.alert("The existing payment data bridge is unavailable. No changes were saved.");
+            return false;
+        }
+
+        const actor = getStaffActor();
+        const before = getRequestSnapshot(latest);
+        const candidate = {
+            ...updates,
+            modificationHistory: [
+                ...(Array.isArray(latest.modificationHistory) ? latest.modificationHistory : []),
+                {
+                    action,
+                    reason: reason || "",
+                    changedAt: new Date().toISOString(),
+                    changedBy: actor.id,
+                    changedByName: actor.name,
+                    previous: before,
+                    current: { ...before, ...updates }
+                }
+            ]
+        };
+
+        const saved = bridge.updatePaymentRequest(request.id, candidate);
+        if (!saved) {
+            window.alert("The payment request could not be saved. Please retry.");
+            return false;
+        }
+
+        updateExistingRequestNotification(saved, action === "cancelled");
+        if (typeof closeDetails === "function") closeDetails();
+        handleFinancialChange();
+        openClient(saved.clientId || saved.client_id);
+        window.alert(action === "cancelled" ? "Payment request cancelled." : "Payment request updated.");
+        return true;
+    }
+
+
+    function openEditPaymentRequest(requestId, closeDetails) {
+        if (!canManagePaymentRequests()) {
+            window.alert("You are not authorised to manage payment requests.");
+            return;
+        }
+
+        paymentRequestProtectionData = window.LORDBLESS_PAYMENT_BRIDGE?.load?.() || null;
+        const request = getRequestForChange(requestId);
+        const protection = getRequestProtection(request);
+        if (protection) {
+            window.alert(protection);
+            return;
+        }
+
+        const details = getRequestSnapshot(request);
+        const openedUpdatedAt = request.updatedAt || request.updated_at || request.createdAt || request.created_at || "";
+        const overlay = document.createElement("div");
+        overlay.className = "lbc-finance-payment-detail-overlay";
+        overlay.innerHTML = `
+            <div class="lbc-finance-payment-detail-backdrop"></div>
+            <section class="lbc-finance-payment-detail lbc-finance-request-editor" role="dialog" aria-modal="true" aria-labelledby="lbc-finance-request-editor-title">
+                <div class="lbc-finance-payment-detail-header">
+                    <div><span>EDIT PAYMENT REQUEST</span><h2 id="lbc-finance-request-editor-title">${escapeHTML(request.reference || request.id)}</h2><p>${escapeHTML(details.clientName || "Client")} · ${escapeHTML(details.clientEmail)}</p></div>
+                    <button type="button" class="lbc-finance-payment-detail-close" aria-label="Close">×</button>
+                </div>
+                <p class="lbc-finance-request-identity">Client identity and request reference are fixed to preserve the existing request record.</p>
+                <form data-payment-request-edit-form>
+                    <label>Service / journey<input name="transactionTitle" maxlength="180" value="${escapeHTML(details.transactionTitle)}"></label>
+                    <label>Service details<input name="service" maxlength="180" value="${escapeHTML(details.service)}"></label>
+                    <label>Description<textarea name="description" rows="3" maxlength="1000" required>${escapeHTML(details.description)}</textarea></label>
+                    <div class="lbc-finance-request-form-grid">
+                        <label>Amount<input name="amount" type="number" min="0.01" step="0.01" value="${escapeHTML(details.amount)}" required></label>
+                        <label>Currency<select name="currency"><option value="GHS" ${details.currency === "GHS" ? "selected" : ""}>GHS</option><option value="EUR" ${details.currency === "EUR" ? "selected" : ""}>EUR</option><option value="USD" ${details.currency === "USD" ? "selected" : ""}>USD</option></select></label>
+                        <label>Due date<input name="dueDate" type="date" value="${escapeHTML(details.dueDate)}"></label>
+                    </div>
+                    <label>Payment instructions<textarea name="paymentInstructions" rows="3" maxlength="1500">${escapeHTML(details.paymentInstructions)}</textarea></label>
+                    <div class="lbc-finance-detail-actions">
+                        <button type="button" class="lbc-btn lbc-btn-secondary" data-request-edit-cancel>Cancel</button>
+                        <button type="submit" class="lbc-btn lbc-btn-primary">Save changes</button>
+                    </div>
+                </form>
+            </section>`;
+        document.body.appendChild(overlay);
+
+        const close = () => overlay.remove();
+        overlay.querySelector(".lbc-finance-payment-detail-close").addEventListener("click", close);
+        overlay.querySelector(".lbc-finance-payment-detail-backdrop").addEventListener("click", close);
+        overlay.querySelector("[data-request-edit-cancel]").addEventListener("click", close);
+        overlay.querySelector("form").addEventListener("submit", event => {
+            event.preventDefault();
+            const values = new FormData(event.currentTarget);
+            const amount = Number(values.get("amount"));
+            const description = String(values.get("description") || "").trim();
+            const currency = String(values.get("currency") || "").toUpperCase();
+            if (!Number.isFinite(amount) || amount <= 0 || !description || !["GHS", "EUR", "USD"].includes(currency)) {
+                window.alert("Enter a valid amount, description and currency.");
+                return;
+            }
+
+            const latest = getRequestForChange(requestId);
+            const latestUpdatedAt = latest?.updatedAt || latest?.updated_at || latest?.createdAt || latest?.created_at || "";
+            if (String(latestUpdatedAt) !== String(openedUpdatedAt)) {
+                window.alert("This payment request changed while the edit form was open. Reopen it and review the latest saved values.");
+                close();
+                return;
+            }
+            const latestProtection = getRequestProtection(latest);
+            if (latestProtection) {
+                window.alert(latestProtection);
+                close();
+                return;
+            }
+
+            const updates = {
+                transactionTitle: String(values.get("transactionTitle") || "").trim(),
+                service: String(values.get("service") || "").trim(),
+                description,
+                amount,
+                total: amount,
+                currency,
+                dueDate: String(values.get("dueDate") || "") || null,
+                paymentInstructions: String(values.get("paymentInstructions") || "").trim()
+            };
+            if (saveRequestChange(latest, "edited", "", updates, close)) close();
+        });
+    }
+
+
+    function cancelPaymentRequest(requestId, closeDetails) {
+        if (!canManagePaymentRequests()) {
+            window.alert("You are not authorised to manage payment requests.");
+            return;
+        }
+
+        paymentRequestProtectionData = window.LORDBLESS_PAYMENT_BRIDGE?.load?.() || null;
+        const request = getRequestForChange(requestId);
+        const protection = getRequestProtection(request);
+        if (protection) {
+            window.alert(protection);
+            return;
+        }
+
+        const confirmed = window.confirm("Are you sure you want to cancel this payment request? The client will no longer be required to pay this amount. This action will not record a payment or generate a receipt.");
+        if (!confirmed) return;
+
+        const reason = window.prompt("Cancellation reason (optional):", "");
+        if (reason === null) return;
+        const actor = getStaffActor();
+        saveRequestChange(request, "cancelled", reason.trim(), {
+            status: "cancelled",
+            cancelledAt: new Date().toISOString(),
+            cancellationReason: reason.trim(),
+            cancelledBy: actor.id,
+            cancelledByName: actor.name
+        }, closeDetails);
     }
 
 
@@ -1582,6 +1983,8 @@
 
         state.activeContainer =
             container;
+
+        paymentRequestProtectionData = window.LORDBLESS_PAYMENT_BRIDGE?.load?.() || null;
 
 
         const payments =
