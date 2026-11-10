@@ -7989,8 +7989,8 @@ function renderAdminEnquiryClientView(enquiry, portalState) {
             "[data-client-portal-message]"
         );
         resendButton.disabled = true;
-        resendButton.textContent = "SENDING INVITATION…";
-        if (message) message.textContent = "Sending a fresh invitation…";
+        resendButton.textContent = "SENDING ACCOUNT EMAIL…";
+        if (message) message.textContent = "Sending a fresh invitation or password recovery link…";
 
         try {
             const result = await requestClientPortalAccess(
@@ -8013,6 +8013,8 @@ function renderAdminEnquiryClientView(enquiry, portalState) {
                 ),
                 message: result?.invitation_resent
                     ? "A fresh Client Portal invitation was sent."
+                    : result?.password_recovery_sent
+                        ? "This account has already confirmed its email. A password recovery link was sent."
                     : "The invitation request was processed."
             });
         } catch (error) {

@@ -25,6 +25,13 @@ const portalResetPasswordForm = document.getElementById("portal-reset-password-f
 const portalNewPasswordInput = document.getElementById("portal-new-password");
 const portalConfirmPasswordInput = document.getElementById("portal-confirm-password");
 const portalAuthMessage = document.getElementById("portal-auth-message");
+const portalAuthEyebrow = document.getElementById("portal-auth-eyebrow");
+const portalLoginTitle = document.getElementById("portal-login-title");
+const portalLoginDescription = document.getElementById("portal-login-description");
+const portalSetupEmailInput = document.getElementById("portal-setup-email");
+const portalResetPasswordSubmit = document.getElementById("portal-reset-password-submit");
+const portalNewPasswordLabel = document.getElementById("portal-new-password-label");
+const portalConfirmPasswordLabel = document.getElementById("portal-confirm-password-label");
 const portalSignOutButton = document.getElementById("portal-sign-out");
 const portalSignInButton = portalLoginForm.querySelector('[type="submit"]');
 
@@ -45,8 +52,8 @@ const isInviteLink = authLinkType === "invite";
 const isRecoveryLink = authLinkType === "recovery";
 
 function initializePortalUi() {
-    portalLoginForm.hidden = false;
-    portalForgotPasswordButton.hidden = false;
+    portalLoginForm.hidden = true;
+    portalForgotPasswordButton.hidden = true;
     portalRecoveryForm.hidden = true;
     portalResetPasswordForm.hidden = true;
     portalSignOutButton.hidden = true;
@@ -55,17 +62,28 @@ function initializePortalUi() {
     portalAuthMessage.textContent = "Sign in with your LORDBLESS account.";
 }
 
-function showPasswordResetForm(session) {
+function showPasswordResetForm(session, mode = "recovery") {
     // Stop any in-flight portal access check before showing password setup.
     portalResolutionVersion++;
     portalResetMode = true;
     portalPasswordResetComplete = false;
     portalRecoveryEmail = session?.user?.email || portalRecoveryEmail;
+    const isInvitation = mode === "invite";
 
     if (session?.user?.email) {
         portalEmailInput.value = session.user.email;
+        portalSetupEmailInput.value = session.user.email;
     }
 
+    portalAuthEyebrow.textContent = isInvitation ? "CLIENT ACCOUNT SETUP" : "PASSWORD RECOVERY";
+    portalLoginTitle.textContent = isInvitation ? "Create your portal account" : "Update your password";
+    portalLoginDescription.textContent = isInvitation
+        ? "Confirm your registered email and create a password to activate your Client Portal access."
+        : "Create a new password for your LORDBLESS account.";
+    portalNewPasswordLabel.textContent = isInvitation ? "Create password" : "New password";
+    portalConfirmPasswordLabel.textContent = isInvitation ? "Confirm password" : "Confirm new password";
+    portalNewPasswordInput.autocomplete = "new-password";
+    portalResetPasswordSubmit.textContent = isInvitation ? "Create Account" : "Update Password";
     portalLoginForm.hidden = true;
     portalForgotPasswordButton.hidden = true;
     portalRecoveryForm.hidden = true;
@@ -83,6 +101,9 @@ function showPortalLogin(message) {
     portalResetPasswordForm.hidden = true;
     portalSignOutButton.hidden = true;
     portalSignInButton.disabled = false;
+    portalAuthEyebrow.textContent = "CLIENT & ADMIN LOGIN";
+    portalLoginTitle.textContent = "LORDBLESS Portal";
+    portalLoginDescription.textContent = "Sign in with your LORDBLESS account to continue to your portal.";
     portalAuthMessage.dataset.error = "false";
     portalAuthMessage.textContent = message;
 }
@@ -168,7 +189,7 @@ async function handlePortalSession(session) {
         if (version !== portalResolutionVersion) return;
 
         if (access.invited) {
-            showPasswordResetForm(session);
+            showPasswordResetForm(session, "invite");
             return;
         }
 
@@ -213,6 +234,9 @@ portalLoginForm.addEventListener("submit", async event => {
 });
 
 portalForgotPasswordButton.addEventListener("click", () => {
+    portalAuthEyebrow.textContent = "ACCOUNT RECOVERY";
+    portalLoginTitle.textContent = "Reset your password";
+    portalLoginDescription.textContent = "Enter your registered email to receive a secure password reset link.";
     portalLoginForm.hidden = true;
     portalForgotPasswordButton.hidden = true;
     portalRecoveryForm.hidden = false;
@@ -254,6 +278,13 @@ portalResetPasswordForm.addEventListener("submit", async event => {
     event.preventDefault();
     const newPassword = portalNewPasswordInput.value;
 
+    if (newPassword.length < 8) {
+        portalAuthMessage.dataset.error = "true";
+        portalAuthMessage.textContent = "Your password must contain at least 8 characters.";
+        portalNewPasswordInput.focus();
+        return;
+    }
+
     if (newPassword !== portalConfirmPasswordInput.value) {
         portalAuthMessage.dataset.error = "true";
         portalAuthMessage.textContent = "The new password and confirmation do not match.";
@@ -284,9 +315,27 @@ portalResetPasswordForm.addEventListener("submit", async event => {
             if (accountError) throw accountError;
 
             if (clientAccount?.access_status === "invited") {
-                const { error: onboardingError } =
+                const { data: activationStatus, error: onboardingError } =
                     await lordblessSupabase.rpc("complete_client_password_setup");
                 if (onboardingError) throw onboardingError;
+                if (!["activation_required", "active"].includes(activationStatus)) {
+                    throw new Error("Your password was saved, but Client Portal activation could not be confirmed. Please contact LORDBLESS support.");
+                }
+
+                const { data: sessionResult, error: sessionError } =
+                    await lordblessSupabase.auth.getSession();
+                if (sessionError) throw sessionError;
+                if (sessionResult?.session?.user?.id !== userResult.user.id) {
+                    throw new Error("Your password was saved, but your secure session could not be confirmed. Please sign in with your new password.");
+                }
+
+                portalNewPasswordInput.value = "";
+                portalConfirmPasswordInput.value = "";
+                portalPasswordResetComplete = true;
+                portalResetMode = false;
+                portalAuthMessage.textContent = "Your account is ready. Opening your Client Portal...";
+                routePortalRole("client");
+                return;
             }
         }
 
@@ -355,7 +404,7 @@ lordblessSupabase.auth.onAuthStateChange((event, session) => {
     }
 
     if (event === "PASSWORD_RECOVERY") {
-        showPasswordResetForm(session);
+        showPasswordResetForm(session, "recovery");
         return;
     }
 
@@ -398,7 +447,17 @@ async function initializeAuthentication() {
                 // The callback has now established a session; remove one-time
                 // credentials from the address bar before showing the form.
                 window.history.replaceState({}, document.title, window.location.pathname);
-                showPasswordResetForm(session);
+                let mode = isInviteLink ? "invite" : isRecoveryLink ? "recovery" : null;
+                if (!mode && session.user.id) {
+                    const { data: clientAccount, error: accountError } = await lordblessSupabase
+                        .from("client_accounts")
+                        .select("access_status")
+                        .eq("auth_user_id", session.user.id)
+                        .maybeSingle();
+                    if (accountError) throw accountError;
+                    mode = clientAccount?.access_status === "invited" ? "invite" : "recovery";
+                }
+                showPasswordResetForm(session, mode || "recovery");
             } else {
                 showPortalLogin("This password setup link is invalid, expired or already used. Request a fresh link to continue.");
             }
@@ -407,7 +466,7 @@ async function initializeAuthentication() {
         }
 
         if (portalPendingAuthEvent?.event === "PASSWORD_RECOVERY") {
-            if (session?.user) showPasswordResetForm(session);
+            if (session?.user) showPasswordResetForm(session, "recovery");
             else showPortalLogin("This password reset link is invalid, expired or already used. Request a fresh link to continue.");
             portalAuthInitializationComplete = true;
             return;
@@ -417,9 +476,8 @@ async function initializeAuthentication() {
         await handlePortalSession(session);
     } catch (error) {
         portalAuthInitializationComplete = true;
+        showPortalLogin(error?.message || String(error));
         portalAuthMessage.dataset.error = "true";
-        portalAuthMessage.textContent = error?.message || String(error);
-        portalSignInButton.disabled = false;
     }
 }
 

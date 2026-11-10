@@ -233,20 +233,26 @@ Deno.serve(async (request) => {
             return response(422, { error: "The linked Auth identity has no recovery email address." }, origin);
         }
 
-        const { error: resendError } =
-            await serviceClient.auth.resetPasswordForEmail(
+        const hasConfirmedEmail = Boolean(existingAuthUser.email_confirmed_at);
+        const resendResult = hasConfirmedEmail
+            ? await serviceClient.auth.resetPasswordForEmail(
+                existingAuthUser.email.trim(),
+                { redirectTo: inviteRedirectUrl },
+            )
+            : await serviceClient.auth.admin.inviteUserByEmail(
                 existingAuthUser.email.trim(),
                 { redirectTo: inviteRedirectUrl },
             );
 
-        if (resendError) {
+        if (resendResult.error) {
             return response(409, {
-                error: resendError.message || "The invitation could not be resent.",
+                error: resendResult.error.message || "The invitation could not be resent.",
             }, origin);
         }
         return response(200, {
             success: true,
-            invitation_resent: true,
+            invitation_resent: !hasConfirmedEmail,
+            password_recovery_sent: hasConfirmedEmail,
             client_id: client.id,
             access_status: "invited",
         }, origin);
@@ -268,6 +274,22 @@ Deno.serve(async (request) => {
         authUser = await findAuthUserByEmail(serviceClient, client.email);
     } catch {
         return response(500, { error: "Unable to check for an existing Auth user." }, origin);
+    }
+
+    // A prior partial attempt may have created an unconfirmed Auth identity
+    // without linking it. Reissue the invitation for that same identity.
+    if (authUser && !authUser.email_confirmed_at) {
+        const { error: inviteError } =
+            await serviceClient.auth.admin.inviteUserByEmail(
+                client.email.trim(),
+                { redirectTo: inviteRedirectUrl },
+            );
+        if (inviteError) {
+            return response(409, {
+                error: inviteError.message || "The Client Portal invitation could not be resent.",
+            }, origin);
+        }
+        sentInvitation = true;
     }
 
     if (!authUser) {

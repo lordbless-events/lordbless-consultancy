@@ -90,13 +90,13 @@
 
     <main class="portal-login-main">
         <section class="portal-login-card" aria-labelledby="portal-login-title">
-            <div class="topbar-label">CLIENT &amp; ADMIN LOGIN</div>
+            <div class="topbar-label" id="portal-auth-eyebrow">CLIENT &amp; ADMIN LOGIN</div>
             <h1 id="portal-login-title">LORDBLESS Portal</h1>
-            <p class="portal-login-description">
+            <p class="portal-login-description" id="portal-login-description">
                 Sign in with your LORDBLESS account to continue to your portal.
             </p>
 
-            <form id="portal-login-form">
+            <form id="portal-login-form" hidden>
                 <label for="portal-email">Email</label>
                 <input
                     id="portal-email"
@@ -120,7 +120,7 @@
                 </button>
             </form>
 
-            <button id="portal-forgot-password" class="portal-login-link" type="button">
+            <button id="portal-forgot-password" class="portal-login-link" type="button" hidden>
                 Forgot password?
             </button>
 
@@ -143,25 +143,37 @@
             </form>
 
             <form id="portal-reset-password-form" hidden>
-                <label for="portal-new-password">New password</label>
+                <label for="portal-setup-email">Registered email</label>
+                <input
+                    id="portal-setup-email"
+                    name="email"
+                    type="email"
+                    autocomplete="username"
+                    readonly
+                    required
+                >
+
+                <label id="portal-new-password-label" for="portal-new-password">New password</label>
                 <input
                     id="portal-new-password"
                     name="new-password"
                     type="password"
                     autocomplete="new-password"
+                    minlength="8"
                     required
                 >
 
-                <label for="portal-confirm-password">Confirm new password</label>
+                <label id="portal-confirm-password-label" for="portal-confirm-password">Confirm new password</label>
                 <input
                     id="portal-confirm-password"
                     name="confirm-password"
                     type="password"
                     autocomplete="new-password"
+                    minlength="8"
                     required
                 >
 
-                <button class="nav-cta" type="submit">
+                <button id="portal-reset-password-submit" class="nav-cta" type="submit">
                     Set new password
                 </button>
             </form>
