@@ -33,10 +33,14 @@ let portalResolutionVersion = 0;
 let portalResetMode = false;
 let portalPasswordResetComplete = false;
 let portalRecoveryEmail = "";
+let portalAuthInitializationComplete = false;
+let portalPendingAuthEvent = null;
 
 const recoveryHashParams = new URLSearchParams(window.location.hash.slice(1));
 const recoveryQueryParams = new URLSearchParams(window.location.search);
 const authLinkType = recoveryHashParams.get("type") || recoveryQueryParams.get("type");
+const authTokenHash = recoveryHashParams.get("token_hash") || recoveryQueryParams.get("token_hash");
+const authCode = recoveryQueryParams.get("code");
 const isInviteLink = authLinkType === "invite";
 const isRecoveryLink = authLinkType === "recovery";
 
@@ -164,17 +168,7 @@ async function handlePortalSession(session) {
         if (version !== portalResolutionVersion) return;
 
         if (access.invited) {
-            const { data: accessStatus, error } =
-                await lordblessSupabase.rpc("complete_client_password_setup");
-            if (error) throw error;
-            if (version !== portalResolutionVersion) return;
-
-            if (!["activation_required", "active"].includes(accessStatus)) {
-                throw new Error("Your Client Portal access could not be confirmed.");
-            }
-
-            portalAuthMessage.textContent = "Access confirmed. Opening your portal...";
-            routePortalRole("client");
+            showPasswordResetForm(session);
             return;
         }
 
@@ -244,7 +238,7 @@ portalRecoveryForm.addEventListener("submit", async event => {
     try {
         const email = portalRecoveryEmailInput.value.trim();
         const { error } = await lordblessSupabase.auth.resetPasswordForEmail(email, {
-            redirectTo: "https://lordblessconsultancy.com/portal-login.html"
+            redirectTo: `${window.location.origin}/portal-login.html`
         });
         if (error) throw error;
         portalAuthMessage.textContent = "If an account exists for that email, a password reset link has been sent.";
@@ -353,42 +347,76 @@ portalSignOutButton.addEventListener("click", async () => {
 });
 
 lordblessSupabase.auth.onAuthStateChange((event, session) => {
+    if (event === "INITIAL_SESSION") return;
+
+    if (!portalAuthInitializationComplete) {
+        portalPendingAuthEvent = { event, session };
+        return;
+    }
+
     if (event === "PASSWORD_RECOVERY") {
         showPasswordResetForm(session);
         return;
     }
 
     if (portalResetMode || portalPasswordResetComplete) return;
-    if (event === "INITIAL_SESSION") return;
     void handlePortalSession(session);
 });
 
 async function initializeAuthentication() {
     try {
+        let verifiedSession = null;
+        // Supabase PKCE invite and recovery links may arrive as `?code=` without
+        // a `type` parameter. Treat that callback as password setup so normal
+        // role routing cannot win a race with PASSWORD_RECOVERY.
+        const isPasswordSetupLink = isInviteLink || isRecoveryLink || Boolean(authCode);
+
+        if (authTokenHash && ["invite", "recovery"].includes(authLinkType)) {
+            const { data, error } = await lordblessSupabase.auth.verifyOtp({
+                token_hash: authTokenHash,
+                type: authLinkType
+            });
+            if (error) throw error;
+            verifiedSession = data?.session || null;
+        }
+
         const { data, error } = await lordblessSupabase.auth.getSession();
         if (error) throw error;
-        const session = data?.session;
+        let session = verifiedSession || data?.session || portalPendingAuthEvent?.session || null;
 
-        if (isInviteLink) {
+        // The client SDK handles supported URL hash callbacks during client initialization.
+        // If a PKCE code remains without a session, complete the exchange explicitly.
+        if (!session && authCode) {
+            const { data: exchangeData, error: exchangeError } =
+                await lordblessSupabase.auth.exchangeCodeForSession(authCode);
+            if (exchangeError) throw exchangeError;
+            session = exchangeData?.session || null;
+        }
+
+        if (isPasswordSetupLink) {
             if (session?.user) {
+                // The callback has now established a session; remove one-time
+                // credentials from the address bar before showing the form.
+                window.history.replaceState({}, document.title, window.location.pathname);
                 showPasswordResetForm(session);
             } else {
-                showPortalLogin("Open the invitation link again to continue setting up your account.");
+                showPortalLogin("This password setup link is invalid, expired or already used. Request a fresh link to continue.");
             }
+            portalAuthInitializationComplete = true;
             return;
         }
 
-        if (isRecoveryLink) {
-            if (session?.user) {
-                showPasswordResetForm(session);
-            } else {
-                showPortalLogin("Open the password reset link again to continue.");
-            }
+        if (portalPendingAuthEvent?.event === "PASSWORD_RECOVERY") {
+            if (session?.user) showPasswordResetForm(session);
+            else showPortalLogin("This password reset link is invalid, expired or already used. Request a fresh link to continue.");
+            portalAuthInitializationComplete = true;
             return;
         }
 
+        portalAuthInitializationComplete = true;
         await handlePortalSession(session);
     } catch (error) {
+        portalAuthInitializationComplete = true;
         portalAuthMessage.dataset.error = "true";
         portalAuthMessage.textContent = error?.message || String(error);
         portalSignInButton.disabled = false;
