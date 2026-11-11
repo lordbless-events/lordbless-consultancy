@@ -1,4 +1,17 @@
 .autos-admin .section-header { align-items: center; gap: 18px; }
+.autos-admin-toolbar { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+.autos-admin-bulk { margin: 16px 0 22px; padding: 18px; border: 1px solid rgba(7,26,51,.16); border-radius: 9px; background: #f8f7f2; }
+.autos-admin-bulk[hidden] { display: none; }
+.autos-admin-bulk h3 { margin: 0 0 8px; color: #102744; }
+.autos-admin-bulk > p { color: #475467; font-size: .88rem; }
+.autos-admin-bulk-inputs { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
+.autos-admin-bulk-inputs label { min-width: 0; display: grid; gap: 7px; color: #344054; font-size: .82rem; font-weight: 700; }
+.autos-admin-bulk-inputs input { max-width: 100%; font-size: .78rem; font-weight: 400; }
+.autos-admin-bulk progress { display: block; width: 100%; height: 12px; margin: 12px 0; accent-color: #9b7440; }
+.autos-admin-bulk-status { min-height: 1.4em; font-weight: 600; }
+.autos-admin-bulk-errors:empty { display: none; }
+.autos-admin-bulk-errors { color: #8b2929; }
+.autos-admin[aria-busy="true"] .autos-admin-layout, .autos-admin[aria-busy="true"] .autos-admin-toolbar { pointer-events: none; opacity: .6; }
 .autos-admin-layout { display: grid; grid-template-columns: minmax(220px,.7fr) minmax(0,1.7fr); gap: 22px; align-items: start; }
 .autos-admin-records, .autos-admin-editor { min-width: 0; padding: 20px; border: 1px solid rgba(7,26,51,.13); border-radius: 10px; background: #fff; }
 .autos-admin-records h3, .autos-admin-editor h3, .autos-admin-photos h3 { margin: 0 0 14px; color: #102744; }
@@ -38,4 +51,5 @@
 .autos-admin-preview h4 { margin: 0 0 8px; color: #102744; }
 .autos-admin-preview img { max-width: 340px; margin-top: 10px; }
 @media (max-width: 900px) { .autos-admin-layout { grid-template-columns: 1fr; } .autos-admin-records { max-height: 420px; overflow: auto; } }
-@media (max-width: 600px) { .autos-admin-fields, .autos-admin-photo-grid { grid-template-columns: 1fr; } .autos-admin-fields .autos-admin-wide { grid-column: auto; } }
+@media (max-width: 700px) { .autos-admin-bulk-inputs { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .autos-admin-fields, .autos-admin-photo-grid { grid-template-columns: 1fr; } .autos-admin-fields .autos-admin-wide { grid-column: auto; } .autos-admin-toolbar { width: 100%; justify-content: flex-start; } }
