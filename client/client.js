@@ -607,6 +607,12 @@ function mapAuthenticatedClientJourney(journey) {
 
 }
 
+function isInternalAutosJourney(journey) {
+    const identity = [journey?.journey_type, journey?.service, journey?.title]
+        .filter(Boolean).join(" ").toLowerCase();
+    return identity.includes("autos") || identity.includes("vehicle sourcing");
+}
+
 
 async function loadAuthenticatedClientJourneys(clientId) {
 
@@ -629,6 +635,9 @@ async function loadAuthenticatedClientJourneys(clientId) {
 
     const journeys = (data || [])
         .filter(journey => journey.client_id === clientId)
+        // AUTOS sourcing progress remains staff-only in Phase 1. The same
+        // canonical journey record can support a separately secured Phase 2.
+        .filter(journey => !isInternalAutosJourney(journey))
         .map(mapAuthenticatedClientJourney);
     if (clientId !== LORDBLESS_CLIENT_ACCOUNT.id || requestUserId !== clientAuthLookupUserId) return;
 

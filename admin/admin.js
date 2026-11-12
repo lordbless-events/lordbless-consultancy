@@ -686,7 +686,7 @@ async function signOutAdmin() {
 }
 
 
-async function requestClientPortalAccess(clientId, action = "create") {
+async function requestClientPortalAccess(clientId, action = "create", options = {}) {
 
     if (
         !state.authUser ||
@@ -710,6 +710,7 @@ async function requestClientPortalAccess(clientId, action = "create") {
 
     if (
         action === "create" &&
+        options.ensureAssessment !== false &&
         ["invited", "activation_required"].includes(data?.access_status)
     ) {
         if (!hasPermission(getCurrentUser(), "finance.requests")) {
@@ -4142,7 +4143,7 @@ function openAdminClient(
 
     Promise.all([
         loadClientPortalAccount(client.id),
-        loadAdminAssessmentState(client.id),
+        loadAdminAssessmentState(client.id, { includeConsultation: !isAutosEnquiryRecord(enquiry) }),
         loadAdminJourneys(client.id),
         loadAdminJourneyAssignees()
     ]).then(([account, assessment]) => {
@@ -7820,6 +7821,19 @@ function getEnquiryClientId(enquiry) {
     ).trim();
 }
 
+function isAutosEnquiryRecord(enquiry = {}) {
+    const services = Array.isArray(enquiry.services)
+        ? enquiry.services
+        : [enquiry.services || enquiry.service].filter(Boolean);
+    const identity = [
+        ...services,
+        enquiry.business?.businessType,
+        enquiry.business?.productCategory,
+        enquiry.businessType
+    ].filter(Boolean).join(" ").toLowerCase();
+    return identity.includes("autos") || identity.includes("vehicle sourcing");
+}
+
 
 function isSupabaseClientId(clientId) {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -7898,7 +7912,7 @@ function renderAdminEnquiryClientView(enquiry, portalState) {
 
     bindAdminAssessmentActions(enquiry, portalState || {});
 
-    if (isSupabaseClientId(clientId) && hasPermission(getCurrentUser(), "journeys.write")) {
+    if (isSupabaseClientId(clientId) && hasPermission(getCurrentUser(), "journeys.read")) {
         renderAdminJourneyPanel(clientId);
     }
 
@@ -7928,9 +7942,13 @@ function renderAdminEnquiryClientView(enquiry, portalState) {
         if (message) message.textContent = "Creating Client Portal access…";
 
         try {
-            const result = await requestClientPortalAccess(clientId);
+            const result = await requestClientPortalAccess(clientId, "create", {
+                ensureAssessment: !isAutosEnquiryRecord(enquiry)
+            });
             const portalAccount = await loadClientPortalAccount(clientId);
-            const assessmentState = await loadAdminAssessmentState(clientId);
+            const assessmentState = await loadAdminAssessmentState(clientId, {
+                includeConsultation: !isAutosEnquiryRecord(enquiry)
+            });
             if (
                 enquiryModal.classList.contains("hidden") ||
                 enquiryModal.dataset.clientDetailsReference !== activeReference
@@ -8034,7 +8052,7 @@ function renderAdminEnquiryClientView(enquiry, portalState) {
 }
 
 
-async function loadAdminAssessmentState(clientId) {
+async function loadAdminAssessmentState(clientId, { includeConsultation = true } = {}) {
     const result = {
         assessmentPayment: null,
         consultationMeeting: null,
@@ -8071,7 +8089,7 @@ async function loadAdminAssessmentState(clientId) {
         if (error) result.followupError = error.message || "Follow-up records could not be loaded.";
         else result.clientFollowups = data || [];
     }
-    if (hasPermission(getCurrentUser(), "finance.read")) {
+    if (includeConsultation && hasPermission(getCurrentUser(), "finance.read")) {
         const { data: payment, error: paymentError } = await lordblessSupabase
             .from("client_assessment_payments")
             .select("*")
@@ -8107,7 +8125,7 @@ async function loadAdminAssessmentState(clientId) {
         }
     }
 
-    if (!hasPermission(getCurrentUser(), "consultations.manage")) return result;
+    if (!includeConsultation || !hasPermission(getCurrentUser(), "consultations.manage")) return result;
     const { data: appointments, error: appointmentsError } = await lordblessSupabase
         .from("client_appointments")
         .select("*")
@@ -8136,7 +8154,9 @@ async function loadAdminAssessmentState(clientId) {
 
 async function refreshAdminClientAssessment(enquiry, portalState, messageText = "") {
     const clientId = getEnquiryClientId(enquiry);
-    const assessment = await loadAdminAssessmentState(clientId);
+    const assessment = await loadAdminAssessmentState(clientId, {
+        includeConsultation: !isAutosEnquiryRecord(enquiry)
+    });
     if (
         enquiryModal.classList.contains("hidden") ||
         enquiryModal.dataset.clientDetailsReference !== String(enquiry.reference || enquiry.id || "")
@@ -8377,19 +8397,30 @@ function bindAdminAssessmentActions(enquiry, portalState) {
         if (button) button.disabled = true;
         if (message) message.textContent = "Saving follow-up…";
         try {
+            const selectedTaskType = String(fields.get("task_type") || "other");
+            const isAutosActivity = selectedTaskType.startsWith("autos:");
+            const activityLabel = isAutosActivity
+                ? followupForm.querySelector('[name="task_type"] option:checked')?.textContent || "AUTOS activity"
+                : "";
+            const enteredNotes = String(fields.get("notes") || "").trim();
+            const notes = isAutosActivity
+                ? `AUTOS ACTIVITY: ${activityLabel}${enteredNotes ? `\n${enteredNotes}` : ""}`
+                : enteredNotes;
             const { error } = await lordblessSupabase.from("portal_followups").insert({
                 client_id: followupForm.dataset.clientId,
                 enquiry_id: isSupabaseClientId(enquiry.id) ? enquiry.id : null,
                 created_by: state.adminIdentity?.id,
                 due_date: fields.get("due_date"),
                 priority: fields.get("priority"),
-                task_type: fields.get("task_type"),
-                notes: String(fields.get("notes") || "").trim(),
+                task_type: isAutosActivity ? "other" : selectedTaskType,
+                notes,
                 status: "open"
             });
             if (error) throw error;
             if (enquiryModal.classList.contains("hidden") || enquiryModal.dataset.clientDetailsReference !== activeReference) return;
-            const updatedState = await loadAdminAssessmentState(followupForm.dataset.clientId);
+            const updatedState = await loadAdminAssessmentState(followupForm.dataset.clientId, {
+                includeConsultation: !isAutosEnquiryRecord(enquiry)
+            });
             if (enquiryModal.classList.contains("hidden") || enquiryModal.dataset.clientDetailsReference !== activeReference) return;
             renderAdminEnquiryClientView(enquiry, { ...portalState, ...updatedState });
             const updatedMessage = modalContent.querySelector("[data-client-followup-message]");
@@ -8438,7 +8469,7 @@ async function openAdminEnquiryClient(reference) {
     try {
         const [account, assessment] = await Promise.all([
             loadClientPortalAccount(clientId),
-            loadAdminAssessmentState(clientId),
+            loadAdminAssessmentState(clientId, { includeConsultation: !isAutosEnquiryRecord(enquiry) }),
             loadAdminJourneys(clientId),
             loadAdminJourneyAssignees()
         ]);
@@ -8477,6 +8508,7 @@ function renderAdminJourneyPanel(clientId) {
 
     const canWriteJourneys = hasPermission(getCurrentUser(), "journeys.write");
     const journeyState = window.LORDBLESS_JOURNEY_STATE;
+    const isAutosJourneyPanel = panel.dataset.isAutos === "true";
     const list = panel.querySelector("[data-client-journey-list]");
     const journeys = state.journeys.filter(item => item.clientId === clientId);
     const assignmentDisclosure = panel.querySelector("[data-assign-another-journey]");
@@ -8508,10 +8540,12 @@ function renderAdminJourneyPanel(clientId) {
                             ? `<span>Internal team: ${escapeHTML(state.adminIdentity?.desks?.find(item => item.code === journey.desk)?.name || journey.desk)}</span>`
                             : ""}
                         <span>Assigned: ${escapeHTML(formatDate(journey.createdAt))}</span>
+                        <div class="client-journey-history" data-journey-history="${escapeHTML(journey.id)}" aria-live="polite">Loading journey history...</div>
                         ${canWriteJourneys ? `
                             <form data-journey-update-form data-journey-id="${escapeHTML(journey.id)}">
-                                <label>Current journey stage<select name="stage" required>${journeyState.stages.map(stage => `<option value="${stage.value}" ${journey.stage === stage.value ? "selected" : ""}>${escapeHTML(stage.label)}</option>`).join("")}</select></label>
+                                <label>Current journey stage<select name="stage" required>${journeyState.stagesForJourney(isAutosJourneyPanel ? { service: "LORDBLESS AUTOS" } : journey).map(stage => `<option value="${stage.value}" ${journey.stage === stage.value ? "selected" : ""}>${escapeHTML(stage.label)}</option>`).join("")}</select></label>
                                 <label>Operational status<select name="operational_status" required>${journeyState.operationalStatuses.map(status => `<option value="${status.value}" ${journey.operationalStatus === status.value ? "selected" : ""}>${escapeHTML(status.label)}</option>`).join("")}</select></label>
+                                <label>Internal note (not shared with client)<textarea name="internal_note" maxlength="3000" rows="2"></textarea></label>
                                 <button type="submit" class="button button-secondary">UPDATE</button>
                                 <p data-journey-update-message role="status" aria-live="polite"></p>
                             </form>
@@ -8521,25 +8555,61 @@ function renderAdminJourneyPanel(clientId) {
         }
     }
 
+    const journeyIds = journeys.map(journey => journey.id);
+    if (journeyIds.length) {
+        lordblessSupabase.from("client_journey_stage_history")
+            .select("id,journey_id,previous_stage,new_stage,previous_operational_status,new_operational_status,internal_note,changed_by_name,created_at")
+            .in("journey_id", journeyIds)
+            .order("created_at", { ascending: false })
+            .then(({ data, error }) => {
+                for (const journeyId of journeyIds) {
+                    const target = panel.querySelector(`[data-journey-history="${CSS.escape(journeyId)}"]`);
+                    if (!target || !target.isConnected) continue;
+                    if (error) {
+                        target.textContent = `Journey history unavailable: ${error.message}`;
+                        continue;
+                    }
+                    const entries = (data || []).filter(item => item.journey_id === journeyId);
+                    target.innerHTML = entries.length
+                        ? `<h5>Journey history</h5>${entries.map(item => `
+                            <p><strong>${escapeHTML(journeyState.stageLabel(item.new_stage))}</strong>
+                            ${item.previous_stage ? ` · from ${escapeHTML(journeyState.stageLabel(item.previous_stage))}` : " · journey assigned"}
+                            ${item.previous_operational_status ? ` · ${escapeHTML(journeyState.operationalStatusLabel(item.previous_operational_status))} → ${escapeHTML(journeyState.operationalStatusLabel(item.new_operational_status))}` : ` · ${escapeHTML(journeyState.operationalStatusLabel(item.new_operational_status))}`}
+                            · ${escapeHTML(formatDate(item.created_at))}
+                            · ${escapeHTML(item.changed_by_name || "Staff")}</p>
+                            ${item.internal_note ? `<p>${escapeHTML(item.internal_note)}</p>` : ""}
+                        `).join("")}`
+                        : "No stage changes recorded yet.";
+                }
+            })
+            .catch(error => {
+                panel.querySelectorAll("[data-journey-history]").forEach(target => {
+                    target.textContent = `Journey history unavailable: ${error?.message || "Unable to load history."}`;
+                });
+            });
+    }
+
     list?.querySelectorAll("[data-journey-update-form]").forEach(form => {
         form.addEventListener("submit", async event => {
             event.preventDefault();
             const button = form.querySelector('[type="submit"]');
             const message = form.querySelector("[data-journey-update-message]");
             if (button) button.disabled = true;
-            if (message) message.textContent = "Saving journey stage and operational status…";
+            if (message) message.textContent = "Saving journey stage, status and internal note…";
             try {
-                const { data: updatedJourney, error } = await lordblessSupabase
-                    .from("client_journeys")
-                    .update({ stage: form.elements.stage.value, operational_status: form.elements.operational_status.value })
-                    .eq("id", form.dataset.journeyId)
-                    .eq("client_id", clientId)
-                    .select("id")
-                    .maybeSingle();
+                const { data: updatedJourney, error } = await lordblessSupabase.rpc("update_client_journey_progress", {
+                    p_journey_id: form.dataset.journeyId,
+                    p_stage: form.elements.stage.value,
+                    p_operational_status: form.elements.operational_status.value,
+                    p_internal_note: form.elements.internal_note.value.trim()
+                });
                 if (error) throw error;
                 if (!updatedJourney) throw new Error("Journey was not updated. Check your access and try again.");
                 await loadAdminJourneys(clientId);
                 renderAdminJourneyPanel(clientId);
+                const updatedForm = modalContent.querySelector(`[data-journey-update-form][data-journey-id="${CSS.escape(form.dataset.journeyId)}"]`);
+                const updatedMessage = updatedForm?.querySelector("[data-journey-update-message]");
+                if (updatedMessage) updatedMessage.textContent = "Journey update and history saved.";
             } catch (error) {
                 if (message) message.textContent = error?.message || "Unable to update journey.";
                 if (button) button.disabled = false;
@@ -8683,8 +8753,12 @@ function openEnquiry(
             if (message) message.textContent = "Creating Client Portal access…";
 
             try {
-                const result = await requestClientPortalAccess(clientId);
-                const assessmentState = await loadAdminAssessmentState(clientId);
+                const result = await requestClientPortalAccess(clientId, "create", {
+                    ensureAssessment: !isAutosEnquiryRecord(enquiry)
+                });
+                const assessmentState = await loadAdminAssessmentState(clientId, {
+                    includeConsultation: !isAutosEnquiryRecord(enquiry)
+                });
                 if (message) {
                     const accessMessage = result?.already_linked
                         ? "This client already has linked Client Portal access."

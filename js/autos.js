@@ -118,7 +118,10 @@ document.addEventListener("DOMContentLoaded", () => {
             // enquiry itself is confirmed by the RPC above, not by email.
             try {
                 const { data: notificationData, error: notificationError } = await lordblessSupabase.functions.invoke("send-enquiry-email", {
-                    body: { enquiryData, reference: data.reference }
+                    body: {
+                        enquiryData: window.LORDBLESS_ENQUIRY_EMAIL_PAYLOAD?.forNotification(enquiryData) || enquiryData,
+                        reference: data.reference
+                    }
                 });
                 if (notificationError || notificationData?.success !== true) {
                     console.error("AUTOS enquiry notification was not confirmed.", notificationError || notificationData?.error);

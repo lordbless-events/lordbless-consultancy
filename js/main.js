@@ -1008,7 +1008,7 @@ async function sendEnquiryEmail(
             "send-enquiry-email",
             {
                 body: {
-                    enquiryData,
+                    enquiryData: window.LORDBLESS_ENQUIRY_EMAIL_PAYLOAD?.forNotification(enquiryData) || enquiryData,
                     reference
                 }
             }

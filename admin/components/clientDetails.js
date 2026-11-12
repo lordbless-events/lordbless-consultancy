@@ -53,6 +53,19 @@
             .join("");
     }
 
+    function isAutosEnquiry(enquiry = {}) {
+        const services = Array.isArray(enquiry.services)
+            ? enquiry.services
+            : [enquiry.services || enquiry.service].filter(Boolean);
+        const identity = [
+            ...services,
+            enquiry.business?.businessType,
+            enquiry.business?.productCategory,
+            enquiry.businessType
+        ].map(textValue).join(" ").toLowerCase();
+        return identity.includes("autos") || identity.includes("vehicle sourcing");
+    }
+
     function serviceSections(enquiry) {
         const serviceValues = Array.isArray(enquiry.services)
             ? enquiry.services
@@ -183,6 +196,7 @@
     }
 
     function renderAssessment(model, clientId) {
+        if (isAutosEnquiry(model.enquiry || {})) return "";
         const payment = model.assessmentPayment || null;
         const meeting = model.consultationMeeting || null;
         if (!model.canReadAssessment) {
@@ -298,6 +312,7 @@
     }
 
     function renderAppointments(model, clientId) {
+        if (isAutosEnquiry(model.enquiry || {})) return "";
         if (!model.canManageAppointments) return "";
         const appointments = Array.isArray(model.appointments) ? model.appointments : [];
         const rows = appointments.length ? appointments.map(appointment => `
@@ -348,8 +363,16 @@
 
     function renderClientDocuments(model) {
         if (!model.canReadDocuments) return "";
-        const documents = Array.isArray(model.clientDocuments) ? model.clientDocuments : [];
-        const requests = Array.isArray(model.documentRequests) ? model.documentRequests : [];
+        const autos = isAutosEnquiry(model.enquiry || {});
+        const allDocuments = Array.isArray(model.clientDocuments) ? model.clientDocuments : [];
+        const allRequests = Array.isArray(model.documentRequests) ? model.documentRequests : [];
+        const requests = autos && model.enquiry?.id
+            ? allRequests.filter(item => item.enquiry_id === model.enquiry.id)
+            : allRequests;
+        const requestIds = new Set(requests.map(item => item.id));
+        const documents = autos && model.enquiry?.id
+            ? allDocuments.filter(item => requestIds.has(item.document_request_id) || item.enquiry_id === model.enquiry.id)
+            : allDocuments;
         const statusOf = document => String(document.status || document.review_status || "uploaded").toLowerCase();
         const pendingReview = documents.filter(document => ["uploaded", "submitted", "reviewing", "pending", "pending_review"].includes(statusOf(document))).length;
         const approved = documents.filter(document => statusOf(document) === "approved").length;
@@ -360,8 +383,9 @@
 
         return `
             <details class="client-detail-accordion full-width">
-                <summary><span>Documents</span><strong>${documents.length} uploaded</strong></summary>
+                <summary><span>${autos ? "AUTOS Transaction Documents" : "Documents"}</span><strong>${documents.length} uploaded</strong></summary>
                 <div class="client-detail-accordion-content">
+                    ${autos ? "<p>Request only documents needed for this vehicle transaction. Requests and uploads remain linked to the existing client and enquiry records.</p>" : ""}
                     ${model.documentError ? `<p role="alert">${escapeClientDetails(model.documentError)}</p>` : ""}
                     <div class="client-document-summary-grid">
                         <div><span>Total uploaded</span><strong>${documents.length}</strong></div>
@@ -382,42 +406,38 @@
         const enquiryId = escapeClientDetails(model.enquiry?.id || "");
         const canWrite = Boolean(model.canWriteJourneys);
         const journeys = Array.isArray(model.assignedJourneys) ? model.assignedJourneys : [];
+        const autosJourney = isAutosEnquiry(model.enquiry || {}) || journeys.some(journey =>
+            isAutosEnquiry({ service: journey.service, businessType: journey.journeyType, title: journey.title })
+        );
+        const initialStages = autosJourney
+            ? window.LORDBLESS_JOURNEY_STATE.autosStages
+            : window.LORDBLESS_JOURNEY_STATE.stages;
 
         if (!canWrite) {
-            const summaries = journeys.length ? journeys.map(journey => {
-                return `
-                    <article class="client-workspace-row">
-                        <strong>${escapeClientDetails(journey.title || journey.journeyType || "Client journey")}</strong>
-                        <span>Current stage: ${escapeClientDetails(window.LORDBLESS_JOURNEY_STATE.stageLabel(journey.stage))}</span>
-                        <span>Operational status: ${escapeClientDetails(window.LORDBLESS_JOURNEY_STATE.operationalStatusLabel(journey.operationalStatus))}</span>
-                        <span>${escapeClientDetails(journey.destination || "Destination not specified")} / ${escapeClientDetails(journey.service || "Service not specified")}</span>
-                    </article>
-                `;
-            }).join("") : "<p>No journeys have been assigned to this client.</p>";
             return `
-                <details class="client-detail-accordion full-width">
-                    <summary><span>Journey Management</span><strong>${journeys.length} assigned</strong></summary>
-                    <div class="client-detail-accordion-content">${summaries}</div>
+                <details class="client-detail-accordion full-width client-journeys-card" data-client-journey-panel data-client-id="${clientId}" data-enquiry-id="${enquiryId}" data-is-autos="${autosJourney ? "true" : "false"}">
+                    <summary><span>${autosJourney ? "AUTOS Sourcing Journey" : "Journey Management"}</span><strong>${journeys.length} assigned</strong></summary>
+                    <div class="client-detail-accordion-content"><div data-client-journey-list>${journeys.length ? "" : "<p>No journeys have been assigned to this client.</p>"}</div></div>
                 </details>
             `;
         }
 
         return `
-            <details class="client-detail-accordion full-width client-journeys-card" data-client-journey-panel data-client-id="${clientId}" data-enquiry-id="${enquiryId}">
-                <summary><span>Journey Management</span></summary>
+            <details class="client-detail-accordion full-width client-journeys-card" data-client-journey-panel data-client-id="${clientId}" data-enquiry-id="${enquiryId}" data-is-autos="${autosJourney ? "true" : "false"}">
+                <summary><span>${autosJourney ? "AUTOS Sourcing Journey" : "Journey Management"}</span></summary>
                 <div class="client-detail-accordion-content">
-                    <h3>Assigned journeys</h3>
+                    <h3>${autosJourney ? "Vehicle sourcing progress" : "Assigned journeys"}</h3>
                     <div data-client-journey-list role="status" aria-live="polite">Loading assigned journeys...</div>
                     ${canWrite ? `
                         <details class="client-journey-assignment" data-assign-another-journey ${journeys.length ? "" : "open"}>
                             <summary ${journeys.length ? "" : "hidden"}>${journeys.length ? "Assign Another Journey" : ""}</summary>
                         <form data-client-journey-form>
                             <h4>${journeys.length ? "Assign a new journey" : "Assign journey"}</h4>
-                            <label>Journey type<input name="journey_type" type="text" required maxlength="120"></label>
-                            <label>Title<input name="title" type="text" required maxlength="180" placeholder="e.g. Germany Nursing Career"></label>
-                            <label>Destination<input name="destination" type="text" required maxlength="120"></label>
-                            <label>Service<input name="service" type="text" required maxlength="180"></label>
-                            <label>Initial journey stage<select name="stage" required>${window.LORDBLESS_JOURNEY_STATE.stages.map(stage => `<option value="${stage.value}" ${stage.value === "enquiry" ? "selected" : ""}>${escapeClientDetails(stage.label)}</option>`).join("")}</select></label>
+                            <label>Journey type<input name="journey_type" type="text" required maxlength="120" value="${autosJourney ? "LORDBLESS AUTOS" : ""}"></label>
+                            <label>Title<input name="title" type="text" required maxlength="180" value="${autosJourney ? "Vehicle sourcing" : ""}" placeholder="e.g. Germany Nursing Career"></label>
+                            <label>Destination<input name="destination" type="text" required maxlength="120" value="${autosJourney ? "Ghana" : ""}"></label>
+                            <label>Service<input name="service" type="text" required maxlength="180" value="${autosJourney ? "LORDBLESS AUTOS vehicle sourcing" : ""}"></label>
+                            <label>Initial journey stage<select name="stage" required>${initialStages.map((stage, index) => `<option value="${stage.value}" ${index === 0 ? "selected" : ""}>${escapeClientDetails(stage.label)}</option>`).join("")}</select></label>
                             <label>Initial operational status<select name="operational_status" required>${window.LORDBLESS_JOURNEY_STATE.operationalStatuses.map(status => `<option value="${status.value}" ${status.value === "active" ? "selected" : ""}>${escapeClientDetails(status.label)}</option>`).join("")}</select></label>
                             <label>Internal assignee (optional)<select name="internal_assignee_id"><option value="">Unassigned</option></select></label>
                             <label>Internal team / desk (optional)<select name="desk_id"><option value="">Unassigned</option></select></label>
@@ -433,23 +453,35 @@
     function renderClientFollowups(model, clientId) {
         if (!model.canReadFollowups) return "";
         const followups = Array.isArray(model.clientFollowups) ? model.clientFollowups : [];
+        const autos = isAutosEnquiry(model.enquiry || {});
+        const autosActivityLabels = {
+            "autos:customer_contact": "Customer contact",
+            "autos:quotation_followup": "Quotation follow-up",
+            "autos:customer_decision": "Await customer decision",
+            "autos:supplier_availability": "Supplier availability",
+            "autos:payment_followup": "Payment follow-up",
+            "autos:document_request": "Outstanding documents",
+            "autos:shipping_update": "Shipping update",
+            "autos:arrival_confirmation": "Arrival confirmation",
+            "autos:delivery_coordination": "Delivery coordination"
+        };
         const rows = followups.length ? followups.map(item => `
             <article class="client-workspace-row">
-                <strong>${escapeClientDetails(item.task_type.replaceAll("_", " "))} · ${escapeClientDetails(item.status.replaceAll("_", " "))}</strong>
+                <strong>${escapeClientDetails(item.notes?.match(/^AUTOS ACTIVITY: ([^\n]+)/)?.[1] || item.task_type.replaceAll("_", " "))} · ${escapeClientDetails(item.status.replaceAll("_", " "))}</strong>
                 <span>Due ${escapeClientDetails(item.due_date)} · ${escapeClientDetails(item.priority)}</span>
                 ${item.notes ? `<p>${escapeClientDetails(item.notes)}</p>` : ""}
             </article>
         `).join("") : "<p>No follow-up actions are recorded.</p>";
         return `
             <details class="client-detail-accordion full-width">
-                <summary><span>Follow-ups</span><strong>${followups.filter(item => !["completed", "cancelled"].includes(item.status)).length} open · ${followups.length} total</strong></summary>
+                <summary><span>${autos ? "AUTOS Internal Follow-ups" : "Follow-ups"}</span><strong>${followups.filter(item => !["completed", "cancelled"].includes(item.status)).length} open · ${followups.length} total</strong></summary>
                 <div class="client-detail-accordion-content">
                     ${model.followupError ? `<p role="alert">${escapeClientDetails(model.followupError)}</p>` : ""}
                     ${rows}
                     ${model.canWriteFollowups ? `
                         <form data-client-followup-form data-client-id="${escapeClientDetails(clientId)}">
                             <label>Due date<input name="due_date" type="date" required></label>
-                            <label>Task type<select name="task_type" required><option value="client_decision">Client decision</option><option value="enquiry_contact">Client contact</option><option value="missing_document">Missing document</option><option value="payment_reminder">Payment reminder</option><option value="consultation">Consultation</option><option value="other">Other</option></select></label>
+                            <label>${autos ? "AUTOS activity" : "Task type"}<select name="task_type" required>${autos ? Object.entries(autosActivityLabels).map(([value, label]) => `<option value="${value}">${escapeClientDetails(label)}</option>`).join("") : '<option value="client_decision">Client decision</option><option value="enquiry_contact">Client contact</option><option value="missing_document">Missing document</option><option value="payment_reminder">Payment reminder</option><option value="consultation">Consultation</option><option value="other">Other</option>'}</select></label>
                             <label>Priority<select name="priority"><option value="normal">Normal</option><option value="low">Low</option><option value="high">High</option><option value="urgent">Urgent</option></select></label>
                             <label>Notes<textarea name="notes" rows="2" maxlength="3000"></textarea></label>
                             <button class="button button-secondary" type="submit">ADD FOLLOW-UP</button>
@@ -538,8 +570,8 @@
                     </div>
                 </details>
                 ${renderJourneyManagement(model)}
-                ${renderAssessment(model, model.clientId)}
-                ${renderAppointments(model, model.clientId)}
+                ${isAutosEnquiry(enquiry) ? "" : renderAssessment(model, model.clientId)}
+                ${isAutosEnquiry(enquiry) ? "" : renderAppointments(model, model.clientId)}
                 ${renderClientDocuments(model)}
                 ${renderClientFollowups(model, model.clientId)}
                 ${renderPortalAccess(portalState, model.clientId)}
