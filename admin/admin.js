@@ -448,16 +448,25 @@ function getFirstPermittedAdminView(user, requestedView) {
 
     if (
         ADMIN_VIEW_PERMISSIONS[requestedView] &&
-        hasPermission(user, ADMIN_VIEW_PERMISSIONS[requestedView])
+        hasAdminViewPermission(user, requestedView)
     ) {
         return requestedView;
     }
 
     const availableView = Object.entries(ADMIN_VIEW_PERMISSIONS)
-        .find(([view, permission]) => hasPermission(user, permission));
+        .find(([view]) => hasAdminViewPermission(user, view));
 
     return availableView?.[0] || null;
 
+}
+
+function hasAdminViewPermission(user, view) {
+    if (!user) return false;
+    if (view === "autos") return hasPermission(user, "autos.manage");
+    if (["enquiries", "documents", "followups"].includes(view) && hasPermission(user, "autos.manage")) {
+        return true;
+    }
+    return hasPermission(user, ADMIN_VIEW_PERMISSIONS[view]);
 }
 
 
@@ -469,7 +478,7 @@ function applyAdminNavigationAccess() {
     document.querySelectorAll("[data-view]").forEach(item => {
         const permission = ADMIN_VIEW_PERMISSIONS[item.dataset.view];
         if (!permission) return;
-        item.hidden = !hasPermission(user, permission);
+        item.hidden = !hasAdminViewPermission(user, item.dataset.view);
     });
 
 }
@@ -748,17 +757,6 @@ async function loadAdminEnquiries() {
         state.authUser?.id;
 
     if (!requestUserId) {
-        return;
-    }
-
-    if (!state.adminIdentity?.isOverallAdmin) {
-        state.enquiries = [];
-        state.enquiryDataSource = "scope_unavailable";
-        state.enquiryLoadError =
-            "Desk-scoped enquiry access is withheld until the live enquiry-to-client ownership relationship is verified and protected by RLS.";
-        if (["dashboard", "enquiries"].includes(state.currentView)) {
-            renderView(state.currentView);
-        }
         return;
     }
 
@@ -2733,10 +2731,7 @@ function renderView(
 
     if (
         requiredPermission &&
-        !hasPermission(
-            getCurrentUser(),
-            requiredPermission
-        )
+        !hasAdminViewPermission(getCurrentUser(), view)
     ) {
         view = getFirstPermittedAdminView(
             getCurrentUser(),
@@ -3210,11 +3205,6 @@ function canCurrentAdminAccessJourney(
         return true;
     }
 
-    if (document.databaseDocument === true) {
-        // The database query is already restricted by the document RLS policy.
-        return true;
-    }
-
     if (journey.isSupabase === true) {
         // These rows have already been scoped by the database RLS policy.
         return true;
@@ -3268,7 +3258,7 @@ async function loadAdminJourneys(clientId = null) {
 
     if (
         !state.adminIdentity ||
-        !hasPermission(state.adminIdentity, "journeys.read")
+        !(hasPermission(state.adminIdentity, "journeys.read") || hasPermission(state.adminIdentity, "autos.manage"))
     ) {
         return [];
     }
@@ -3325,7 +3315,7 @@ async function loadAdminJourneyAssignees() {
 
     if (
         !state.adminIdentity ||
-        !hasPermission(state.adminIdentity, "journeys.write")
+        !(hasPermission(state.adminIdentity, "journeys.write") || hasPermission(state.adminIdentity, "autos.manage"))
     ) {
         return [];
     }
@@ -3395,9 +3385,10 @@ function canCurrentAdminAccessClient(
         return true;
     }
 
-    return (
-        getAdminClientJourneys(clientId).length > 0
-    );
+    return getAdminClientJourneys(clientId).length > 0 ||
+        (hasPermission(getCurrentUser(), "autos.manage") && state.enquiries.some(enquiry =>
+            getEnquiryClientId(enquiry) === clientId && isAutosEnquiryRecord(enquiry)
+        ));
 
 }
 
@@ -3495,7 +3486,7 @@ async function loadAdminDocumentRecords() {
     state.adminDocuments = [];
     state.adminDocumentRequests = [];
     state.adminDocumentLoadError = "";
-    if (!hasPermission(getCurrentUser(), "documents.read")) {
+    if (!hasPermission(getCurrentUser(), "documents.read") && !hasPermission(getCurrentUser(), "autos.manage")) {
         state.adminDocumentLoadError = "Document read permission is required to view client documents.";
         return;
     }
@@ -3567,7 +3558,7 @@ function getAdminClientStatus(
 
     const account = state.portalClientAccounts.find(item => item.client_id === clientId);
     const journeyStatusLabel = journey
-        ? `${window.LORDBLESS_JOURNEY_STATE.stageLabel(journey.stage)} · ${window.LORDBLESS_JOURNEY_STATE.operationalStatusLabel(journey.operationalStatus)}`
+        ? `${window.LORDBLESS_JOURNEY_STATE.stageLabelForJourney(journey.stage, journey)} · ${window.LORDBLESS_JOURNEY_STATE.operationalStatusLabel(journey.operationalStatus)}`
         : "";
 
     if (account?.access_status === "active") {
@@ -3932,7 +3923,7 @@ function renderAdminClientRow(
                 <span>
                     ${
                         journey
-                            ? escapeHTML(`${journey.title} / ${window.LORDBLESS_JOURNEY_STATE.stageLabel(journey.stage)} / ${window.LORDBLESS_JOURNEY_STATE.operationalStatusLabel(journey.operationalStatus)}${journeys.length > 1 ? ` (+${journeys.length - 1} more)` : ""}`)
+                            ? escapeHTML(`${journey.title} / ${window.LORDBLESS_JOURNEY_STATE.stageLabelForJourney(journey.stage, journey)} / ${window.LORDBLESS_JOURNEY_STATE.operationalStatusLabel(journey.operationalStatus)}${journeys.length > 1 ? ` (+${journeys.length - 1} more)` : ""}`)
                             : "—"
                     }
                 </span>
@@ -4143,7 +4134,7 @@ function openAdminClient(
 
     Promise.all([
         loadClientPortalAccount(client.id),
-        loadAdminAssessmentState(client.id, { includeConsultation: !isAutosEnquiryRecord(enquiry) }),
+        loadAdminAssessmentState(client.id, { includeConsultation: !isAutosEnquiryRecord(enquiry), isAutos: isAutosEnquiryRecord(enquiry), enquiryId: enquiry.id }),
         loadAdminJourneys(client.id),
         loadAdminJourneyAssignees()
     ]).then(([account, assessment]) => {
@@ -4759,6 +4750,11 @@ function canCurrentAdminAccessDocument(
         return true;
     }
 
+    if (document.databaseDocument === true) {
+        // Supabase RLS already scopes AUTOS documents to China Desk/Overall Admin.
+        return true;
+    }
+
     if (document.transactionId) {
 
         const journey =
@@ -5066,7 +5062,7 @@ async function renderAdminDocuments() {
                             type="button"
                             id="admin-create-document-request"
                             class="lbc-document-btn lbc-document-btn-primary"
-                            ${hasPermission(getCurrentUser(), "documents.review") ? "" : "disabled title=\"Document review permission is required\""}
+                            ${hasPermission(getCurrentUser(), "documents.review") || hasPermission(getCurrentUser(), "autos.manage") ? "" : "disabled title=\"Document review permission is required\""}
                         >
                             + Request Document
                         </button>
@@ -5967,7 +5963,10 @@ function openAdminDocumentReview(documentId) {
 }
 
 async function renderDatabaseDocumentReview(selected, client) {
-    const canReview = hasPermission(getCurrentUser(), "documents.review");
+    const linkedRequest = state.adminDocumentRequests.find(request => request.id === selected.document_request_id);
+    const relatedEnquiry = state.enquiries.find(enquiry => enquiry.id === linkedRequest?.enquiry_id);
+    const canReview = hasPermission(getCurrentUser(), "documents.review") ||
+        (isAutosEnquiryRecord(relatedEnquiry) && hasPermission(getCurrentUser(), "autos.manage"));
     modalContent.innerHTML = `
         <div class="lbc-document-modal-content">
             <h3>${escapeHTML(selected.name || "Document")}</h3>
@@ -6109,7 +6108,7 @@ function openAdminDocumentRequest(requestId) {
 ========================================================= */
 
 function openNewAdminDocumentRequest() {
-    if (!hasPermission(getCurrentUser(), "documents.review")) {
+    if (!hasPermission(getCurrentUser(), "documents.review") && !hasPermission(getCurrentUser(), "autos.manage")) {
         window.alert("Document review permission is required to create a request.");
         return;
     }
@@ -7868,6 +7867,7 @@ function renderAdminEnquiryClientView(enquiry, portalState) {
 
     const clientId = getEnquiryClientId(enquiry);
     const hasPersistentClient = isSupabaseClientId(clientId);
+    const autosEnquiry = isAutosEnquiryRecord(enquiry);
 
     const clientDocuments = portalState?.clientDocuments || [];
     const documentAttentionCount = clientDocuments.filter(document => {
@@ -7886,18 +7886,18 @@ function renderAdminEnquiryClientView(enquiry, portalState) {
             clientId: getEnquiryClientId(enquiry),
             entryPoint: portalState?.entryPoint || "enquiries",
             assignedJourneys: portalState?.assignedJourneys || getAdminClientJourneys(clientId),
-            canReadJourneys: hasPermission(getCurrentUser(), "journeys.read"),
-            canWriteJourneys: hasPermission(getCurrentUser(), "journeys.write"),
+            canReadJourneys: hasPermission(getCurrentUser(), "journeys.read") || hasPermission(getCurrentUser(), "autos.manage"),
+            canWriteJourneys: hasPermission(getCurrentUser(), "journeys.write") || hasPermission(getCurrentUser(), "autos.manage"),
             portalState: portalState || {},
-            canReadAssessment: hasPersistentClient && hasPermission(getCurrentUser(), "finance.read"),
-            canCreateAssessment: hasPersistentClient && hasPermission(getCurrentUser(), "finance.requests"),
-            canScheduleConsultation: hasPersistentClient && hasPermission(getCurrentUser(), "consultations.manage"),
-            assessmentPayment: portalState?.assessmentPayment || null,
-            consultationMeeting: portalState?.consultationMeeting || null,
+            canReadAssessment: !autosEnquiry && hasPersistentClient && hasPermission(getCurrentUser(), "finance.read"),
+            canCreateAssessment: !autosEnquiry && hasPersistentClient && hasPermission(getCurrentUser(), "finance.requests"),
+            canScheduleConsultation: !autosEnquiry && hasPersistentClient && hasPermission(getCurrentUser(), "consultations.manage"),
+            assessmentPayment: autosEnquiry ? null : portalState?.assessmentPayment || null,
+            consultationMeeting: autosEnquiry ? null : portalState?.consultationMeeting || null,
             assessmentError: portalState?.assessmentError || "",
             appointments: portalState?.appointments || [],
             appointmentError: portalState?.appointmentError || "",
-            canManageAppointments: hasPersistentClient && hasPermission(getCurrentUser(), "consultations.manage"),
+            canManageAppointments: !autosEnquiry && hasPersistentClient && hasPermission(getCurrentUser(), "consultations.manage"),
             clientDocuments,
             documentAttentionCount,
             documentRequests: portalState?.documentRequests || [],
@@ -7912,7 +7912,7 @@ function renderAdminEnquiryClientView(enquiry, portalState) {
 
     bindAdminAssessmentActions(enquiry, portalState || {});
 
-    if (isSupabaseClientId(clientId) && hasPermission(getCurrentUser(), "journeys.read")) {
+    if (isSupabaseClientId(clientId) && (hasPermission(getCurrentUser(), "journeys.read") || hasPermission(getCurrentUser(), "autos.manage"))) {
         renderAdminJourneyPanel(clientId);
     }
 
@@ -7947,7 +7947,7 @@ function renderAdminEnquiryClientView(enquiry, portalState) {
             });
             const portalAccount = await loadClientPortalAccount(clientId);
             const assessmentState = await loadAdminAssessmentState(clientId, {
-                includeConsultation: !isAutosEnquiryRecord(enquiry)
+                includeConsultation: !isAutosEnquiryRecord(enquiry), isAutos: isAutosEnquiryRecord(enquiry), enquiryId: enquiry.id
             });
             if (
                 enquiryModal.classList.contains("hidden") ||
@@ -8052,7 +8052,13 @@ function renderAdminEnquiryClientView(enquiry, portalState) {
 }
 
 
-async function loadAdminAssessmentState(clientId, { includeConsultation = true } = {}) {
+async function loadAdminAssessmentState(clientId, { includeConsultation = true, isAutos = false, enquiryId = null } = {}) {
+    isAutos = isAutos || (hasPermission(getCurrentUser(), "autos.manage") && state.enquiries.some(enquiry =>
+        getEnquiryClientId(enquiry) === clientId && isAutosEnquiryRecord(enquiry)
+    ));
+    const scopedEnquiryId = isAutos
+        ? enquiryId || state.enquiries.find(enquiry => getEnquiryClientId(enquiry) === clientId && isAutosEnquiryRecord(enquiry))?.id || null
+        : null;
     const result = {
         assessmentPayment: null,
         consultationMeeting: null,
@@ -8062,30 +8068,37 @@ async function loadAdminAssessmentState(clientId, { includeConsultation = true }
         clientDocuments: [],
         documentRequests: [],
         documentError: "",
-        canReadDocuments: hasPermission(getCurrentUser(), "documents.read"),
+        canReadDocuments: hasPermission(getCurrentUser(), "documents.read") || (isAutos && hasPermission(getCurrentUser(), "autos.manage")),
         clientFollowups: [],
         followupError: "",
-        canReadFollowups: hasPermission(getCurrentUser(), "followups.read"),
-        canWriteFollowups: hasPermission(getCurrentUser(), "followups.write")
+        canReadFollowups: hasPermission(getCurrentUser(), "followups.read") || (isAutos && hasPermission(getCurrentUser(), "autos.manage")),
+        canWriteFollowups: hasPermission(getCurrentUser(), "followups.write") || (isAutos && hasPermission(getCurrentUser(), "autos.manage"))
     };
     if (result.canReadDocuments) {
+        let requestsQuery = lordblessSupabase.from("document_requests").select("*").eq("client_id", clientId).order("created_at", { ascending: false });
+        if (scopedEnquiryId) requestsQuery = requestsQuery.eq("enquiry_id", scopedEnquiryId);
         const [documents, requests] = await Promise.all([
             lordblessSupabase.from("client_documents").select("*").eq("client_id", clientId),
-            lordblessSupabase.from("document_requests").select("*").eq("client_id", clientId).order("created_at", { ascending: false })
+            requestsQuery
         ]);
         if (documents.error || requests.error) {
             result.documentError = documents.error?.message || requests.error?.message || "Document records could not be loaded.";
         } else {
-            result.clientDocuments = documents.data || [];
+            const requestIds = new Set((requests.data || []).map(request => request.id));
+            result.clientDocuments = scopedEnquiryId
+                ? (documents.data || []).filter(document => requestIds.has(document.document_request_id))
+                : documents.data || [];
             result.documentRequests = requests.data || [];
         }
     }
     if (result.canReadFollowups) {
-        const { data, error } = await lordblessSupabase
+        let followupsQuery = lordblessSupabase
             .from("portal_followups")
             .select("id, client_id, due_date, priority, task_type, notes, status, created_at, completed_at")
             .eq("client_id", clientId)
             .order("due_date", { ascending: true });
+        if (scopedEnquiryId) followupsQuery = followupsQuery.eq("enquiry_id", scopedEnquiryId);
+        const { data, error } = await followupsQuery;
         if (error) result.followupError = error.message || "Follow-up records could not be loaded.";
         else result.clientFollowups = data || [];
     }
@@ -8155,7 +8168,7 @@ async function loadAdminAssessmentState(clientId, { includeConsultation = true }
 async function refreshAdminClientAssessment(enquiry, portalState, messageText = "") {
     const clientId = getEnquiryClientId(enquiry);
     const assessment = await loadAdminAssessmentState(clientId, {
-        includeConsultation: !isAutosEnquiryRecord(enquiry)
+        includeConsultation: !isAutosEnquiryRecord(enquiry), isAutos: isAutosEnquiryRecord(enquiry), enquiryId: enquiry.id
     });
     if (
         enquiryModal.classList.contains("hidden") ||
@@ -8419,7 +8432,7 @@ function bindAdminAssessmentActions(enquiry, portalState) {
             if (error) throw error;
             if (enquiryModal.classList.contains("hidden") || enquiryModal.dataset.clientDetailsReference !== activeReference) return;
             const updatedState = await loadAdminAssessmentState(followupForm.dataset.clientId, {
-                includeConsultation: !isAutosEnquiryRecord(enquiry)
+                includeConsultation: !isAutosEnquiryRecord(enquiry), isAutos: isAutosEnquiryRecord(enquiry), enquiryId: enquiry.id
             });
             if (enquiryModal.classList.contains("hidden") || enquiryModal.dataset.clientDetailsReference !== activeReference) return;
             renderAdminEnquiryClientView(enquiry, { ...portalState, ...updatedState });
@@ -8469,7 +8482,7 @@ async function openAdminEnquiryClient(reference) {
     try {
         const [account, assessment] = await Promise.all([
             loadClientPortalAccount(clientId),
-            loadAdminAssessmentState(clientId, { includeConsultation: !isAutosEnquiryRecord(enquiry) }),
+            loadAdminAssessmentState(clientId, { includeConsultation: !isAutosEnquiryRecord(enquiry), isAutos: isAutosEnquiryRecord(enquiry), enquiryId: enquiry.id }),
             loadAdminJourneys(clientId),
             loadAdminJourneyAssignees()
         ]);
@@ -8506,9 +8519,9 @@ function renderAdminJourneyPanel(clientId) {
         .find(item => item.dataset.clientId === clientId);
     if (!panel) return;
 
-    const canWriteJourneys = hasPermission(getCurrentUser(), "journeys.write");
     const journeyState = window.LORDBLESS_JOURNEY_STATE;
     const isAutosJourneyPanel = panel.dataset.isAutos === "true";
+    const canWriteJourneys = hasPermission(getCurrentUser(), "journeys.write") || (isAutosJourneyPanel && hasPermission(getCurrentUser(), "autos.manage"));
     const list = panel.querySelector("[data-client-journey-list]");
     const journeys = state.journeys.filter(item => item.clientId === clientId);
     const assignmentDisclosure = panel.querySelector("[data-assign-another-journey]");
@@ -8530,7 +8543,7 @@ function renderAdminJourneyPanel(clientId) {
             list.innerHTML = journeys.map(journey => `
                     <article class="client-journey-summary">
                         <strong>${escapeHTML(journey.title || journey.journeyType || "Client journey")}</strong>
-                        <span>Current stage: ${escapeHTML(journeyState.stageLabel(journey.stage))}</span>
+                        <span>Current stage: ${escapeHTML(journeyState.stageLabelForJourney(journey.stage, isAutosJourneyPanel ? { ...journey, service: "LORDBLESS AUTOS" } : journey))}</span>
                         <span>Operational status: ${escapeHTML(journeyState.operationalStatusLabel(journey.operationalStatus))}${journey.operationalStatus === "on_hold" ? " · This journey is currently on hold." : ""}</span>
                         <span>${escapeHTML(journey.destination || "—")} · ${escapeHTML(journey.service || "—")}</span>
                         ${journey.internalAssigneeId
@@ -8543,7 +8556,7 @@ function renderAdminJourneyPanel(clientId) {
                         <div class="client-journey-history" data-journey-history="${escapeHTML(journey.id)}" aria-live="polite">Loading journey history...</div>
                         ${canWriteJourneys ? `
                             <form data-journey-update-form data-journey-id="${escapeHTML(journey.id)}">
-                                <label>Current journey stage<select name="stage" required>${journeyState.stagesForJourney(isAutosJourneyPanel ? { service: "LORDBLESS AUTOS" } : journey).map(stage => `<option value="${stage.value}" ${journey.stage === stage.value ? "selected" : ""}>${escapeHTML(stage.label)}</option>`).join("")}</select></label>
+                                <label>Current journey stage<select name="stage" required>${journeyState.stagesForJourney(isAutosJourneyPanel ? { ...journey, service: "LORDBLESS AUTOS" } : journey).map(stage => `<option value="${stage.value}" ${journey.stage === stage.value ? "selected" : ""}>${escapeHTML(stage.label)}</option>`).join("")}</select></label>
                                 <label>Operational status<select name="operational_status" required>${journeyState.operationalStatuses.map(status => `<option value="${status.value}" ${journey.operationalStatus === status.value ? "selected" : ""}>${escapeHTML(status.label)}</option>`).join("")}</select></label>
                                 <label>Internal note (not shared with client)<textarea name="internal_note" maxlength="3000" rows="2"></textarea></label>
                                 <button type="submit" class="button button-secondary">UPDATE</button>
@@ -8572,8 +8585,8 @@ function renderAdminJourneyPanel(clientId) {
                     const entries = (data || []).filter(item => item.journey_id === journeyId);
                     target.innerHTML = entries.length
                         ? `<h5>Journey history</h5>${entries.map(item => `
-                            <p><strong>${escapeHTML(journeyState.stageLabel(item.new_stage))}</strong>
-                            ${item.previous_stage ? ` · from ${escapeHTML(journeyState.stageLabel(item.previous_stage))}` : " · journey assigned"}
+                            <p><strong>${escapeHTML(journeyState.stageLabelForJourney(item.new_stage, isAutosJourneyPanel ? { service: "LORDBLESS AUTOS" } : journey))}</strong>
+                            ${item.previous_stage ? ` · from ${escapeHTML(journeyState.stageLabelForJourney(item.previous_stage, isAutosJourneyPanel ? { service: "LORDBLESS AUTOS" } : journey))}` : " · journey assigned"}
                             ${item.previous_operational_status ? ` · ${escapeHTML(journeyState.operationalStatusLabel(item.previous_operational_status))} → ${escapeHTML(journeyState.operationalStatusLabel(item.new_operational_status))}` : ` · ${escapeHTML(journeyState.operationalStatusLabel(item.new_operational_status))}`}
                             · ${escapeHTML(formatDate(item.created_at))}
                             · ${escapeHTML(item.changed_by_name || "Staff")}</p>
@@ -8757,7 +8770,7 @@ function openEnquiry(
                     ensureAssessment: !isAutosEnquiryRecord(enquiry)
                 });
                 const assessmentState = await loadAdminAssessmentState(clientId, {
-                    includeConsultation: !isAutosEnquiryRecord(enquiry)
+                    includeConsultation: !isAutosEnquiryRecord(enquiry), isAutos: isAutosEnquiryRecord(enquiry), enquiryId: enquiry.id
                 });
                 if (message) {
                     const accessMessage = result?.already_linked

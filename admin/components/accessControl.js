@@ -18,6 +18,21 @@ function hasPermission(user, permission) {
         ? user.permissions
         : getUserPermissions(user);
 
+    // AUTOS is restricted to Overall Admin and explicitly authorised China
+    // Desk staff. Broad admin.all / wildcard grants must not bypass the desk
+    // boundary for this permission.
+    if (permission === "autos.manage") {
+        if (user.isOverallAdmin === true || user.role === "super_admin") {
+            return true;
+        }
+        const desks = Array.isArray(user.desks) ? user.desks : [];
+        const hasChinaDesk = desks.some(desk =>
+            String(typeof desk === "string" ? desk : desk?.code || "").toLowerCase() === "china"
+        ) || (Array.isArray(user.deskIds) && user.deskIds.some(code => String(code).toLowerCase() === "china")) ||
+            String(user.desk || "").toLowerCase() === "china";
+        return hasChinaDesk && permissions.includes("autos.manage");
+    }
+
     /* Super Admin */
     if (
         user.isOverallAdmin === true ||

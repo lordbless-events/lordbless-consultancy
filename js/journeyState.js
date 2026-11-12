@@ -52,12 +52,25 @@
         stagesForJourney: journey => {
             const identity = [journey?.service, journey?.journeyType, journey?.title, journey?.businessType]
                 .filter(Boolean).join(" ").toLowerCase();
-            return identity.includes("autos") || identity.includes("vehicle sourcing")
-                ? autosStages.map(([value, label]) => ({ value, label }))
-                : stages.map(([value, label]) => ({ value, label }));
+            if (identity.includes("autos") || identity.includes("vehicle sourcing")) {
+                const result = autosStages.map(([value, label]) => ({ value, label }));
+                // Keep a historical legacy value selectable until staff move it
+                // to the canonical AUTOS stage; present the approved label.
+                if (journey?.stage === "enquiry") result[0] = { value: "enquiry", label: "Enquiry Received" };
+                return result;
+            }
+            return stages.map(([value, label]) => ({ value, label }));
         },
         normalizeStage: value => normalize(value, allStages, "enquiry"),
         stageLabel: value => stageLabels[normalize(value, allStages, "enquiry")],
+        stageLabelForJourney: (value, journey) => {
+            const identity = [journey?.service, journey?.journeyType, journey?.journey_type, journey?.title]
+                .filter(Boolean).join(" ").toLowerCase();
+            const stage = normalize(value, allStages, "enquiry");
+            return stage === "enquiry" && (identity.includes("autos") || identity.includes("vehicle sourcing"))
+                ? "Enquiry Received"
+                : stageLabels[stage];
+        },
         normalizeOperationalStatus: value => normalize(value, operationalStatuses, "active"),
         operationalStatusLabel: value => operationalStatusLabels[normalize(value, operationalStatuses, "active")]
     });

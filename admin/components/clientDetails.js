@@ -440,7 +440,7 @@
                             <label>Initial journey stage<select name="stage" required>${initialStages.map((stage, index) => `<option value="${stage.value}" ${index === 0 ? "selected" : ""}>${escapeClientDetails(stage.label)}</option>`).join("")}</select></label>
                             <label>Initial operational status<select name="operational_status" required>${window.LORDBLESS_JOURNEY_STATE.operationalStatuses.map(status => `<option value="${status.value}" ${status.value === "active" ? "selected" : ""}>${escapeClientDetails(status.label)}</option>`).join("")}</select></label>
                             <label>Internal assignee (optional)<select name="internal_assignee_id"><option value="">Unassigned</option></select></label>
-                            <label>Internal team / desk (optional)<select name="desk_id"><option value="">Unassigned</option></select></label>
+                            <label>Internal team / desk ${autosJourney ? "(required)" : "(optional)"}<select name="desk_id" ${autosJourney ? "required" : ""}><option value="">Unassigned</option></select></label>
                             <button type="submit" class="button button-primary">ASSIGN NEW JOURNEY</button>
                             <p data-client-journey-message role="status" aria-live="polite"></p>
                         </form>
