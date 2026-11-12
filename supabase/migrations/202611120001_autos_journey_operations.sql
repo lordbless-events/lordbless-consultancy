@@ -1,209 +1,114 @@
--- AUTOS stages and private journey change history.
--- Additive and backward-compatible: existing journeys and their current stage
--- values are retained. Apply only after confirming the base stage migration.
-
-do $$
-begin
-    if to_regclass('public.client_journeys') is null
-       or not exists (
-            select 1 from information_schema.columns
-            where table_schema = 'public' and table_name = 'client_journeys'
-              and column_name = 'stage'
-       )
-       or not exists (
-            select 1 from information_schema.columns
-            where table_schema = 'public' and table_name = 'client_journeys'
-              and column_name = 'operational_status'
-       ) then
-        raise exception 'The client journey stage and operational status migration must be applied first.';
-    end if;
-
-    if exists (
-        select 1 from public.client_journeys
-        where stage not in (
-            'enquiry','assessment','planning','preparation','applications_approvals',
-            'visa_processing','travel','arrival','completed',
-            'enquiry_received','enquiry_reviewed','availability_confirmation',
-            'quotation_preparation','quotation_sent','awaiting_customer_decision',
-            'order_confirmed','payment_processing','vehicle_sourcing',
-            'inspection_documentation','shipping_preparation','in_transit',
-            'arrived_in_ghana','customs_clearing','delivery_arrangements',
-            'delivered','autos_completed'
-        )
-        or operational_status not in ('active','on_hold','completed','cancelled','unsuccessful')
-    ) then
-        raise exception 'A current journey uses an unmapped stage or operational status; no data was changed.';
-    end if;
-end;
-$$;
-
-alter table public.client_journeys
-    drop constraint if exists client_journeys_stage_check,
-    drop constraint if exists client_journeys_operational_status_check;
-
-alter table public.client_journeys
-    add constraint client_journeys_stage_check check (stage in (
-        'enquiry','assessment','planning','preparation','applications_approvals',
-        'visa_processing','travel','arrival','completed',
-        'enquiry_received','enquiry_reviewed','availability_confirmation',
-        'quotation_preparation','quotation_sent','awaiting_customer_decision',
-        'order_confirmed','payment_processing','vehicle_sourcing',
-        'inspection_documentation','shipping_preparation','in_transit',
-        'arrived_in_ghana','customs_clearing','delivery_arrangements',
-        'delivered','autos_completed'
-    )),
-    add constraint client_journeys_operational_status_check check (
-        operational_status in ('active','on_hold','completed','cancelled','unsuccessful')
+)
+    VALUES (
+        NEW.id,
+        CASE WHEN TG_OP = 'UPDATE' THEN OLD.stage ELSE NULL END,
+        NEW.stage,
+        CASE WHEN TG_OP = 'UPDATE' THEN OLD.operational_status ELSE NULL END,
+        NEW.operational_status,
+        pg_catalog.btrim(change_note),
+        auth.uid(),
+        actor_name,
+        pg_catalog.now()
     );
 
--- Phase 1 keeps AUTOS operations staff-only. This restrictive read policy
--- prevents client accounts from reading their own AUTOS progress directly.
-drop policy if exists client_journeys_hide_autos_from_clients on public.client_journeys;
-create policy client_journeys_hide_autos_from_clients
-on public.client_journeys as restrictive for select to authenticated
-using (
-    private.current_client_id() is null
-    or private.current_client_id() <> client_id
-    or (
-        coalesce(journey_type, '') || ' ' || coalesce(service, '') || ' ' || coalesce(title, '')
-    ) not ilike '%autos%'
-    and (
-        coalesce(journey_type, '') || ' ' || coalesce(service, '') || ' ' || coalesce(title, '')
-    ) not ilike '%vehicle sourcing%'
-);
+    RETURN NEW;
+END;
+$function$;
 
-create table if not exists public.client_journey_stage_history (
-    id uuid primary key default gen_random_uuid(),
-    journey_id uuid not null references public.client_journeys(id) on delete restrict,
-    previous_stage text,
-    new_stage text not null,
-    previous_operational_status text,
-    new_operational_status text not null,
-    internal_note text not null default '',
-    changed_by uuid,
-    changed_by_name text not null default 'System',
-    created_at timestamptz not null default now()
-);
+REVOKE ALL ON FUNCTION private.record_client_journey_stage_change()
+    FROM PUBLIC, anon, authenticated;
 
-create index if not exists client_journey_stage_history_journey_created_idx
-    on public.client_journey_stage_history(journey_id, created_at desc);
+DROP TRIGGER IF EXISTS client_journey_stage_history_record
+    ON public.client_journeys;
 
-alter table public.client_journey_stage_history enable row level security;
-revoke all on public.client_journey_stage_history from public, anon, authenticated;
-grant select on public.client_journey_stage_history to authenticated;
+CREATE TRIGGER client_journey_stage_history_record
+AFTER INSERT OR UPDATE OF stage, operational_status
+ON public.client_journeys
+FOR EACH ROW
+EXECUTE FUNCTION private.record_client_journey_stage_change();
 
-drop policy if exists client_journey_stage_history_read_staff on public.client_journey_stage_history;
-create policy client_journey_stage_history_read_staff
-on public.client_journey_stage_history for select to authenticated
-using (
-    private.is_overall_admin()
-    or (
-        private.has_permission('journeys.read')
-        and exists (
-            select 1 from public.client_journeys journey
-            where journey.id = client_journey_stage_history.journey_id
-              and private.can_access_client(journey.client_id)
-        )
-    )
-);
-
-create or replace function private.record_client_journey_stage_change()
-returns trigger
-language plpgsql
-security definer
-set search_path = ''
-as $$
-declare
-    actor_name text;
-    change_note text := coalesce(current_setting('app.journey_change_note', true), '');
-begin
-    if tg_op = 'UPDATE'
-       and new.stage is not distinct from old.stage
-       and new.operational_status is not distinct from old.operational_status
-       and nullif(btrim(change_note), '') is null then
-        return new;
-    end if;
-
-    select coalesce(nullif(btrim(profile.display_name), ''), auth.uid()::text, 'System')
-      into actor_name
-    from public.staff_profiles profile
-    where profile.user_id = auth.uid();
-    actor_name := coalesce(actor_name, auth.uid()::text, 'System');
-
-    insert into public.client_journey_stage_history (
-        journey_id, previous_stage, new_stage,
-        previous_operational_status, new_operational_status,
-        internal_note, changed_by, changed_by_name, created_at
-    ) values (
-        new.id,
-        case when tg_op = 'UPDATE' then old.stage else null end,
-        new.stage,
-        case when tg_op = 'UPDATE' then old.operational_status else null end,
-        new.operational_status,
-        btrim(change_note), auth.uid(), actor_name, now()
-    );
-    return new;
-end;
-$$;
-
-revoke all on function private.record_client_journey_stage_change() from public, anon, authenticated;
-
-drop trigger if exists client_journey_stage_history_record on public.client_journeys;
-create trigger client_journey_stage_history_record
-after insert or update of stage, operational_status on public.client_journeys
-for each row execute function private.record_client_journey_stage_change();
-
-create or replace function public.update_client_journey_progress(
+-- Controlled staff update entry point. SECURITY DEFINER is paired with explicit
+-- staff, permission, and client-assignment checks so it cannot bypass the
+-- existing client_journeys access model.
+CREATE OR REPLACE FUNCTION public.update_client_journey_progress(
     p_journey_id uuid,
     p_stage text,
     p_operational_status text,
-    p_internal_note text default ''
+    p_internal_note text DEFAULT ''
 )
-returns uuid
-language plpgsql
-security definer
-set search_path = ''
-as $$
-declare
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+DECLARE
     journey_client_id uuid;
-begin
-    if auth.uid() is null
-       or not private.has_permission('journeys.write') then
-        raise exception 'Journey write permission is required.' using errcode = '42501';
-    end if;
+BEGIN
+    -- Client accounts must not use this staff-only operation, even if an
+    -- account is accidentally granted a similarly named permission.
+    IF auth.uid() IS NULL
+       OR private.current_client_id() IS NOT NULL
+       OR NOT private.has_permission('journeys.write') THEN
+        RAISE EXCEPTION 'Active staff journey write permission is required.'
+            USING ERRCODE = '42501';
+    END IF;
 
-    if p_stage not in (
-        'enquiry','assessment','planning','preparation','applications_approvals',
-        'visa_processing','travel','arrival','completed',
-        'enquiry_received','enquiry_reviewed','availability_confirmation',
-        'quotation_preparation','quotation_sent','awaiting_customer_decision',
-        'order_confirmed','payment_processing','vehicle_sourcing',
-        'inspection_documentation','shipping_preparation','in_transit',
-        'arrived_in_ghana','customs_clearing','delivery_arrangements',
-        'delivered','autos_completed'
-    ) or p_operational_status not in ('active','on_hold','completed','cancelled','unsuccessful')
-       or length(coalesce(p_internal_note, '')) > 3000 then
-        raise exception 'Journey stage, status or internal note is invalid.' using errcode = '22023';
-    end if;
+    IF p_journey_id IS NULL
+       OR p_stage IS NULL
+       OR p_operational_status IS NULL
+       OR p_stage NOT IN (
+            'enquiry', 'assessment', 'planning', 'preparation',
+            'applications_approvals', 'visa_processing', 'travel',
+            'arrival', 'completed',
+            'enquiry_received', 'enquiry_reviewed',
+            'availability_confirmation', 'quotation_preparation',
+            'quotation_sent', 'awaiting_customer_decision',
+            'order_confirmed', 'payment_processing', 'vehicle_sourcing',
+            'inspection_documentation', 'shipping_preparation', 'in_transit',
+            'arrived_in_ghana', 'customs_clearing', 'delivery_arrangements',
+            'delivered', 'autos_completed'
+       )
+       OR p_operational_status NOT IN (
+            'active', 'on_hold', 'completed', 'cancelled', 'unsuccessful'
+       )
+       OR pg_catalog.length(COALESCE(p_internal_note, '')) > 3000 THEN
+        RAISE EXCEPTION 'Journey ID, stage, operational status or internal note is invalid.'
+            USING ERRCODE = '22023';
+    END IF;
 
-    select journey.client_id into journey_client_id
-    from public.client_journeys journey
-    where journey.id = p_journey_id
-    for update;
+    SELECT journey.client_id
+    INTO journey_client_id
+    FROM public.client_journeys AS journey
+    WHERE journey.id = p_journey_id
+    FOR UPDATE;
 
-    if not found or not private.can_access_client(journey_client_id) then
-        raise exception 'Journey was not found or is outside your authorised client scope.' using errcode = '42501';
-    end if;
+    IF NOT FOUND
+       OR journey_client_id IS NULL
+       OR NOT private.can_access_client(journey_client_id) THEN
+        RAISE EXCEPTION 'Journey was not found or is outside your authorised client scope.'
+            USING ERRCODE = '42501';
+    END IF;
 
-    perform pg_catalog.set_config('app.journey_change_note', coalesce(p_internal_note, ''), true);
-    update public.client_journeys
-    set stage = p_stage, operational_status = p_operational_status, updated_at = now()
-    where id = p_journey_id;
-    perform pg_catalog.set_config('app.journey_change_note', '', true);
+    PERFORM pg_catalog.set_config(
+        'app.journey_change_note',
+        COALESCE(p_internal_note, ''),
+        true
+    );
 
-    return p_journey_id;
-end;
-$$;
+    UPDATE public.client_journeys
+    SET stage = p_stage,
+        operational_status = p_operational_status,
+        updated_at = pg_catalog.now()
+    WHERE id = p_journey_id;
 
-revoke all on function public.update_client_journey_progress(uuid, text, text, text) from public, anon;
-grant execute on function public.update_client_journey_progress(uuid, text, text, text) to authenticated;
+    -- Clear the transaction-local note immediately after the audited update.
+    PERFORM pg_catalog.set_config('app.journey_change_note', '', true);
+
+    RETURN p_journey_id;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.update_client_journey_progress(uuid, text, text, text)
+    FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.update_client_journey_progress(uuid, text, text, text)
+    TO authenticated;
