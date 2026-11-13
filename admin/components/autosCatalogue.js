@@ -102,6 +102,9 @@ window.LORDBLESS_AUTOS_ADMIN = (() => {
                             <label>Supplier listing URL<input name="supplier_listing_url" type="url" maxlength="1000" value="${escape(selected.supplier_listing_url || "")}"></label>
                             <label>Verification status<select name="verification_status">${opt("pending", "Pending confirmation", selected.verification_status || "pending")}${opt("verified", "Verified", selected.verification_status)}${opt("conflict", "Conflict — keep draft", selected.verification_status)}</select></label>
                             <label>Catalogue status<select name="status">${opt("draft", "Draft", selected.status || "draft")}${opt("published", "Published", selected.status)}${opt("unavailable", "Unavailable", selected.status)}</select></label>
+                            <label>Customer availability<select name="availability_status">${opt("available_ghana", "Available in Ghana", selected.availability_status || "available_sourcing")}${opt("available_sourcing", "Available for Sourcing", selected.availability_status || "available_sourcing")}${opt("reserved", "Reserved", selected.availability_status)}${opt("sold", "Sold", selected.availability_status)}</select></label>
+                            <label>Promotional order<input name="promotional_order" type="number" min="0" step="1" value="${escape(selected.promotional_order ?? 0)}"></label>
+                            <label class="autos-admin-featured"><input name="is_featured" type="checkbox" ${selected.is_featured ? "checked" : ""}> Feature on public AUTOS showcases</label>
                             <label class="autos-admin-wide">Verification notes<textarea name="verification_notes" rows="3" maxlength="4000">${escape(selected.verification_notes || "")}</textarea></label>
                             <label class="autos-admin-wide">Public description<textarea name="description" rows="3" maxlength="2000">${escape(selected.description || "")}</textarea></label>
                         </div>
@@ -590,7 +593,10 @@ window.LORDBLESS_AUTOS_ADMIN = (() => {
             verification_status: String(form.get("verification_status") || "pending"),
             verification_notes: blankToNull(form.get("verification_notes")),
             description: blankToNull(form.get("description")),
-            status: String(form.get("status") || "draft")
+            status: String(form.get("status") || "draft"),
+            availability_status: String(form.get("availability_status") || "available_sourcing"),
+            is_featured: form.get("is_featured") === "on",
+            promotional_order: Math.max(0, Number(form.get("promotional_order") || 0))
         };
         const needsReverification = Boolean(activeVehicle) && REVERIFY_FIELDS.some(field =>
             normalizeReviewValue(field, activeVehicle[field]) !== normalizeReviewValue(field, payload[field])
@@ -603,7 +609,16 @@ window.LORDBLESS_AUTOS_ADMIN = (() => {
         const query = activeVehicle
             ? lordblessSupabase.from("autos_vehicles").update(payload).eq("id", activeVehicle.id).select("*").single()
             : lordblessSupabase.from("autos_vehicles").insert(payload).select("*").single();
-        const { data, error: saveError } = await query;
+        let { data, error: saveError } = await query;
+        let availabilityMetadataUnavailable = false;
+        if (saveError && /availability_status|is_featured|promotional_order/i.test(saveError.message || "")) {
+            const { availability_status, is_featured, promotional_order, ...legacyPayload } = payload;
+            const legacyQuery = activeVehicle
+                ? lordblessSupabase.from("autos_vehicles").update(legacyPayload).eq("id", activeVehicle.id).select("*").single()
+                : lordblessSupabase.from("autos_vehicles").insert(legacyPayload).select("*").single();
+            ({ data, error: saveError } = await legacyQuery);
+            availabilityMetadataUnavailable = !saveError;
+        }
         setBusy(false);
         if (saveError) {
             error = `Vehicle was not saved: ${saveError.message}`;
@@ -611,7 +626,9 @@ window.LORDBLESS_AUTOS_ADMIN = (() => {
             return;
         }
         activeVehicle = data;
-        notice = needsReverification
+        notice = availabilityMetadataUnavailable
+            ? `${data.reference} saved as ${data.status}. Availability and showcase settings need the AUTOS metadata migration before they can be saved.`
+            : needsReverification
             ? `${data.reference} saved as draft and marked pending verification because its details or supplier information changed.`
             : `${data.reference} saved as ${data.status}.`;
         await loadData();

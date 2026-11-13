@@ -112,7 +112,7 @@
 .autos-filter-reset { height: 43px; padding: 0 12px; color: #805f22; border: 1px solid #c9a45c; border-radius: 5px; background: #fff; font-weight: 700; cursor: pointer; }
 .autos-catalogue-status { min-height: 1.5em; margin: 0 0 18px; color: #566273; }
 .autos-catalogue-status.is-error { color: #a12f2f; }
-.autos-vehicle-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; }
+.autos-vehicle-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 245px), 1fr)); gap: 22px; }
 .autos-vehicle-card { overflow: hidden; border: 1px solid rgba(7,26,51,.12); border-radius: 12px; background: #fff; box-shadow: 0 12px 32px rgba(7,26,51,.07); }
 .autos-vehicle-card-image { height: 230px; display: grid; place-items: center; overflow: hidden; color: #667085; background: linear-gradient(145deg,#e8e6df,#f7f5f0); }
 .autos-vehicle-card-image img { width: 100%; height: 100%; object-fit: cover; }
@@ -130,8 +130,60 @@
 .autos-detail-header { display: flex; justify-content: space-between; gap: 18px; }
 .autos-detail-header h2 { margin-top: 5px; color: #06152b; font: 600 clamp(1.7rem,4vw,2.6rem)/1.15 Georgia, "Times New Roman", serif; }
 .autos-detail-close { width: 42px; height: 42px; color: #06152b; border: 1px solid rgba(7,26,51,.18); border-radius: 50%; background: #fff; font-size: 1.4rem; cursor: pointer; }
-.autos-detail-gallery { margin: 24px 0; display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; }
-.autos-detail-gallery img { width: 100%; height: 190px; object-fit: cover; border-radius: 7px; }
+.autos-detail-gallery { margin: 24px 0; display: grid; gap: 12px; }
+.autos-gallery-primary { width: 100%; padding: 0; overflow: hidden; border: 0; border-radius: 10px; background: #f1f1ed; cursor: zoom-in; }
+.autos-gallery-primary img { width: 100%; max-height: min(65vh,620px); aspect-ratio: 16/9; object-fit: contain; }
+.autos-gallery-thumbnails { display: flex; gap: 10px; overflow-x: auto; padding: 2px 1px 8px; }
+.autos-gallery-thumbnails button { width: 92px; height: 68px; flex: 0 0 auto; padding: 2px; border: 2px solid transparent; border-radius: 6px; background: #f1f1ed; cursor: pointer; }
+.autos-gallery-thumbnails button[aria-pressed="true"] { border-color: #9b752f; }
+.autos-gallery-thumbnails img { width: 100%; height: 100%; object-fit: cover; border-radius: 3px; }
+.autos-detail-gallery-empty { min-height: 180px; display: grid; place-items: center; color: #667085; background: #f1f1ed; }
+.autos-lightbox { width: min(96vw,1400px); max-width: none; height: min(94vh,900px); max-height: none; padding: 54px 68px 40px; border: 0; border-radius: 10px; background: #071a33; color: #fff; }
+.autos-lightbox::backdrop { background: rgba(0,0,0,.88); }
+.autos-lightbox > img { width: 100%; height: calc(100% - 34px); object-fit: contain; }
+.autos-lightbox > button { position: absolute; top: 50%; min-width: 46px; min-height: 46px; color: #06152b; border: 0; border-radius: 50%; background: #e8cc88; font-size: 1.8rem; cursor: pointer; }
+.autos-lightbox > button:first-child { top: 12px; right: 14px; min-width: 40px; min-height: 40px; }
+.autos-lightbox > button:nth-of-type(2) { left: 12px; }
+.autos-lightbox > button:nth-of-type(3) { right: 12px; }
+.autos-lightbox > p { margin: 6px 0 0; text-align: center; }
+.autos-availability-badge { display: inline-block; margin-top: 9px; padding: 5px 8px; color: #164b31; border-radius: 999px; background: #e4f3e8; font-size: .7rem; font-weight: 800; }
+.autos-availability-badge.available_sourcing { color: #264568; background: #e9f0f8; }
+.autos-availability-badge.reserved { color: #76541c; background: #fbf0d7; }
+.autos-availability-badge.sold { color: #7b3030; background: #f9e5e5; }
+.autos-pagination { margin-top: 28px; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; }
+.autos-pagination:empty { display: none; }
+.autos-pagination button { min-width: 40px; min-height: 40px; padding: 6px 11px; color: #06152b; border: 1px solid rgba(7,26,51,.2); border-radius: 5px; background: #fff; font-weight: 700; cursor: pointer; }
+.autos-pagination button[aria-current="page"] { color: #fff; border-color: #06152b; background: #06152b; }
+.autos-pagination button:disabled { cursor: not-allowed; opacity: .45; }
+.autos-hero-showcase { min-width: 0; }
+.autos-hero-showcase > p { text-align: center; color: rgba(255,255,255,.75); }
+.autos-showcase-slide { min-height: 250px; display: grid; grid-template-columns: minmax(0,1fr) minmax(0,.9fr); align-items: center; gap: 18px; }
+.autos-showcase-slide { animation: autos-showcase-in .28s ease-out; }
+@keyframes autos-showcase-in { from { opacity: .4; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .autos-showcase-slide { animation: none; } }
+.autos-showcase-photo { height: 240px; display: grid; place-items: center; overflow: hidden; border-radius: 12px; background: rgba(255,255,255,.08); color: rgba(255,255,255,.7); }
+.autos-showcase-photo img { width: 100%; height: 100%; object-fit: cover; }
+.autos-showcase-copy { min-width: 0; }
+.autos-showcase-label { color: #e8cc88; font-size: .72rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.autos-showcase-copy h3 { margin-top: 10px; font: 600 clamp(1.25rem,2vw,1.8rem)/1.2 Georgia,serif; }
+.autos-showcase-copy p { margin-top: 8px; color: rgba(255,255,255,.7); font-size: .85rem; }
+.autos-showcase-copy button { margin-top: 16px; padding: 10px 14px; color: #06152b; border: 0; border-radius: 5px; background: #e8cc88; font-weight: 800; cursor: pointer; }
+.autos-showcase-controls { margin-top: 14px; display: flex; align-items: center; justify-content: center; gap: 14px; }
+.autos-showcase-controls > button { width: 36px; height: 36px; color: #06152b; border: 0; border-radius: 50%; background: #e8cc88; font-size: 1.4rem; cursor: pointer; }
+.autos-showcase-controls > span { display: flex; gap: 8px; }
+.autos-showcase-controls [data-showcase-dot] { width: 9px; height: 9px; padding: 0; border: 0; border-radius: 50%; background: rgba(255,255,255,.4); cursor: pointer; }
+.autos-showcase-controls [data-showcase-dot][aria-current="true"] { background: #e8cc88; }
+.autos-home-feature-art.is-autos-showcase { min-width: 0; color: #fff; text-align: left; }
+.autos-home-feature-art .autos-showcase-slide { grid-template-columns: minmax(0,1.1fr) minmax(0,.9fr); }
+.autos-home-feature-art .autos-showcase-photo { height: 190px; }
+.autos-home-feature-art .autos-showcase-copy h3 { color: #fff; }
+.autos-service-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 16px; }
+.autos-service-grid article, .autos-why-grid article { min-width: 0; padding: 21px; border: 1px solid rgba(7,26,51,.12); border-radius: 10px; background: #fff; box-shadow: 0 8px 24px rgba(7,26,51,.04); }
+.autos-service-grid article > span { width: 36px; height: 36px; display: grid; place-items: center; color: #805f22; border-radius: 50%; background: #f5eddb; font-size: 1.2rem; }
+.autos-service-grid h3, .autos-why-grid h3 { margin-top: 13px; color: #06152b; font-size: 1rem; }
+.autos-service-grid p, .autos-why-grid p { margin-top: 8px; color: #667085; font-size: .9rem; }
+.autos-why-us { background: #f7f5f0; }
+.autos-why-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 18px; }
 .autos-detail-facts { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; }
 .autos-detail-facts div { padding: 12px; border: 1px solid rgba(7,26,51,.1); border-radius: 6px; }
 .autos-detail-facts dt { color: #667085; font-size: .75rem; }
@@ -152,6 +204,10 @@
     .autos-catalogue-filters label:first-child { grid-column: 1/-1; }
     .autos-filter-reset { grid-column: 1/-1; }
     .autos-vehicle-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+    .autos-service-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+    .autos-showcase-slide, .autos-home-feature-art .autos-showcase-slide { grid-template-columns: 1fr; }
+    .autos-showcase-photo { height: 210px; }
+    .autos-hero-showcase { min-height: 400px; }
 }
 
 @media (max-width: 520px) {
@@ -172,4 +228,8 @@
     .autos-detail-gallery { grid-template-columns: repeat(2,minmax(0,1fr)); }
     .autos-detail-gallery img { height: 145px; }
     .autos-detail-facts { grid-template-columns: repeat(2,minmax(0,1fr)); }
+    .autos-service-grid, .autos-why-grid { grid-template-columns: 1fr; }
+    .autos-lightbox { width: 100vw; height: 100dvh; padding: 60px 48px 42px; border-radius: 0; }
+    .autos-lightbox > button:nth-of-type(2) { left: 4px; }
+    .autos-lightbox > button:nth-of-type(3) { right: 4px; }
 }
