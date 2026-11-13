@@ -2,7 +2,6 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-const inviteRedirectUrl = Deno.env.get("PORTAL_INVITE_REDIRECT_URL");
 const allowedOrigins = new Set([
     "https://lordblessconsultancy.com",
     ...(Deno.env.get("PORTAL_ALLOWED_ORIGINS") || "")
@@ -10,6 +9,20 @@ const allowedOrigins = new Set([
         .map((origin) => origin.trim())
         .filter(Boolean),
 ]);
+const inviteRedirectUrl = (() => {
+    try {
+        const callback = new URL(
+            Deno.env.get("PORTAL_INVITE_REDIRECT_URL") || "https://lordblessconsultancy.com",
+        );
+        if (!allowedOrigins.has(callback.origin)) return "";
+        callback.pathname = "/portal-login.html";
+        callback.search = "";
+        callback.hash = "";
+        return callback.toString();
+    } catch {
+        return "";
+    }
+})();
 
 const jsonHeaders = {
     "Content-Type": "application/json",

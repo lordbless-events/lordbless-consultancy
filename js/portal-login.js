@@ -45,9 +45,11 @@ let portalPendingAuthEvent = null;
 
 const recoveryHashParams = new URLSearchParams(window.location.hash.slice(1));
 const recoveryQueryParams = new URLSearchParams(window.location.search);
-const authLinkType = recoveryHashParams.get("type") || recoveryQueryParams.get("type");
-const authTokenHash = recoveryHashParams.get("token_hash") || recoveryQueryParams.get("token_hash");
-const authCode = recoveryQueryParams.get("code");
+const authCallback = window.LORDBLESS_AUTH_CALLBACK || {};
+const authLinkType = authCallback.type || recoveryHashParams.get("type") || recoveryQueryParams.get("type");
+const authTokenHash = authCallback.tokenHash || recoveryHashParams.get("token_hash") || recoveryQueryParams.get("token_hash");
+const authCode = authCallback.code || recoveryQueryParams.get("code");
+const authCallbackError = Boolean(authCallback.error || recoveryQueryParams.get("error") || recoveryHashParams.get("error"));
 const isInviteLink = authLinkType === "invite";
 const isRecoveryLink = authLinkType === "recovery";
 
@@ -414,6 +416,13 @@ lordblessSupabase.auth.onAuthStateChange((event, session) => {
 
 async function initializeAuthentication() {
     try {
+        if (authCallbackError) {
+            portalAuthInitializationComplete = true;
+            showPortalLogin("This invitation or password reset link is invalid or has expired. Request a fresh link to continue.");
+            portalAuthMessage.dataset.error = "true";
+            return;
+        }
+
         let verifiedSession = null;
         // Supabase PKCE invite and recovery links may arrive as `?code=` without
         // a `type` parameter. Treat that callback as password setup so normal
