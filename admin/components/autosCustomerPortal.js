@@ -5,7 +5,7 @@
         "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;"
     }[char]));
     const now = () => new Date().toISOString();
-    const currencyOptions = '<option>EUR</option><option>USD</option><option>GHS</option>';
+    const currencyOptions = '<option value="EUR">EUR</option><option value="USD">USD</option><option value="GHS">GHS</option>';
 
     async function mount(container, context) {
         if (!container || !context?.clientId || !context?.enquiryId || typeof lordblessSupabase === "undefined") return;
@@ -17,73 +17,99 @@
         }
 
         const load = async () => {
-            const [quotes, agreements, logistics, payments, updates, documents] = await Promise.all([
-                lordblessSupabase.from("autos_customer_quotes").select("id,client_id,enquiry_id,quote_reference,version,currency,vehicle_purchase_price,lordbless_service_fee,status,created_at,sent_at,accepted_at").eq("enquiry_id", context.enquiryId).order("version", { ascending: false }),
-                lordblessSupabase.from("autos_customer_agreements").select("id,client_id,enquiry_id,document_id,agreement_reference,version,status,created_at,sent_at,accepted_at").eq("enquiry_id", context.enquiryId).order("created_at", { ascending: false }),
-                lordblessSupabase.from("autos_logistics_statements").select("id,client_id,enquiry_id,statement_reference,currency,line_items,total_amount,status,created_at,issued_at").eq("enquiry_id", context.enquiryId).order("created_at", { ascending: false }),
-                lordblessSupabase.from("autos_payment_requests").select("id,client_id,enquiry_id,quote_id,logistics_statement_id,reference,payment_type,currency,amount,description,payment_instructions,status,client_payment_reference,client_payment_date,submitted_at,verified_at,created_at").eq("enquiry_id", context.enquiryId).order("created_at", { ascending: false }),
-                lordblessSupabase.from("autos_customer_updates").select("id,client_id,enquiry_id,title,message,published,created_at,published_at").eq("enquiry_id", context.enquiryId).order("created_at", { ascending: false }),
-                lordblessSupabase.from("client_documents").select("id,document_name,file_name,document_type,status,uploaded_at").eq("client_id", context.clientId).eq("status", "approved").order("uploaded_at", { ascending: false })
+            const [quotes, agreements, logistics, payments, updates, documents, requests] = await Promise.all([
+                lordblessSupabase.from("autos_customer_quotes").select("id,client_id,enquiry_id,quote_reference,version,currency,vehicle_purchase_price,lordbless_service_fee,status,created_at,sent_at,accepted_at").eq("client_id", context.clientId).eq("enquiry_id", context.enquiryId).order("version", { ascending: false }),
+                lordblessSupabase.from("autos_customer_agreements").select("id,client_id,enquiry_id,document_id,agreement_reference,version,status,created_at,sent_at,accepted_at").eq("client_id", context.clientId).eq("enquiry_id", context.enquiryId).order("created_at", { ascending: false }),
+                lordblessSupabase.from("autos_logistics_statements").select("id,client_id,enquiry_id,statement_reference,currency,line_items,total_amount,status,created_at,issued_at").eq("client_id", context.clientId).eq("enquiry_id", context.enquiryId).order("created_at", { ascending: false }),
+                lordblessSupabase.from("autos_payment_requests").select("id,client_id,enquiry_id,quote_id,logistics_statement_id,reference,payment_type,currency,amount,description,payment_instructions,status,client_payment_reference,client_payment_date,submitted_at,verified_at,created_at").eq("client_id", context.clientId).eq("enquiry_id", context.enquiryId).order("created_at", { ascending: false }),
+                lordblessSupabase.from("autos_customer_updates").select("id,client_id,enquiry_id,title,message,published,created_at,published_at").eq("client_id", context.clientId).eq("enquiry_id", context.enquiryId).order("created_at", { ascending: false }),
+                lordblessSupabase.from("client_documents").select("id,document_request_id,document_name,file_name,document_type,status,uploaded_at").eq("client_id", context.clientId).eq("status", "approved").order("uploaded_at", { ascending: false }),
+                lordblessSupabase.from("document_requests").select("id,client_id,enquiry_id,document_type").eq("client_id", context.clientId).eq("enquiry_id", context.enquiryId)
             ]);
-            const error = [quotes, agreements, logistics, payments, updates, documents].find(result => result.error)?.error;
+            const error = [quotes, agreements, logistics, payments, updates, documents, requests].find(result => result.error)?.error;
             if (error) throw error;
             const paymentIds = (payments.data || []).map(item => item.id);
             const receipts = paymentIds.length
                 ? await lordblessSupabase.from("autos_customer_receipts").select("id,payment_request_id,receipt_number,amount_paid,currency,issued_at").in("payment_request_id", paymentIds)
                 : { data:[], error:null };
             if (receipts.error) throw receipts.error;
-            return { quotes: quotes.data || [], agreements: agreements.data || [], logistics: logistics.data || [], payments: payments.data || [], updates: updates.data || [], documents: documents.data || [], receipts: receipts.data || [] };
+            const transactionAgreementRequestIds = new Set((requests.data || [])
+                .filter(request => String(request.document_type || "").toLowerCase().includes("agreement"))
+                .map(request => request.id));
+            const transactionAgreementDocumentIds = new Set((agreements.data || []).map(agreement => agreement.document_id));
+            const eligibleAgreementDocuments = (documents.data || []).filter(document =>
+                document.status === "approved" &&
+                (transactionAgreementRequestIds.has(document.document_request_id) || transactionAgreementDocumentIds.has(document.id)) &&
+                String(document.document_type || "").toLowerCase().includes("agreement")
+            );
+            return { quotes: quotes.data || [], agreements: agreements.data || [], logistics: logistics.data || [], payments: payments.data || [], updates: updates.data || [], documents: eligibleAgreementDocuments, receipts: receipts.data || [] };
         };
 
         const render = data => {
             const latestVersion = data.quotes.reduce((max, quote) => Math.max(max, Number(quote.version) || 0), 0);
-            const paymentFormOptions = `<option value="">Select accepted quote or issued statement</option>${data.quotes.filter(row => row.status === "accepted").map(row => `<option data-kind="quote" value="${escape(row.id)}">${escape(row.quote_reference)} · v${row.version}</option>`).join("")}${data.logistics.filter(row => row.status === "issued").map(row => `<option data-kind="logistics" value="${escape(row.id)}">${escape(row.statement_reference)}</option>`).join("")}`;
+            const agreementOptions = data.documents.map(item => `<option value="${escape(item.id)}">${escape(item.document_name || item.file_name || "Approved agreement")}</option>`).join("");
             container.innerHTML = `
-                <h3>AUTOS Customer Transaction Portal</h3>
-                <p>${escape(context.clientName)} · ${escape(context.enquiryReference)}</p>
-                <div class="autos-customer-admin-grid">
-                    <form class="autos-customer-admin-card" data-autos-form="quote"><h4>Vehicle quotation</h4>
-                        <p>Includes vehicle purchase price and LORDBLESS service fee only.</p>
-                        <label>Currency<select name="currency">${currencyOptions}</select></label>
-                        <label>Vehicle purchase price<input name="purchase" type="number" min="0.01" step="0.01" required></label>
-                        <label>LORDBLESS service fee<input name="fee" type="number" min="0" step="0.01" required></label>
+                <header class="autos-customer-admin-header"><div><span class="autos-customer-admin-eyebrow">AUTOS TRANSACTION MANAGEMENT</span><h3>Customer Transaction Portal</h3><p>${escape(context.clientName)} · ${escape(context.enquiryReference)}</p></div><button type="button" class="button button-secondary autos-customer-refresh" data-autos-refresh>Refresh records</button></header>
+                <div class="autos-customer-admin-sections">
+                    <section class="autos-customer-admin-section"><div class="autos-customer-admin-section-heading"><span>COMMERCIAL DOCUMENTS</span><p>Prepare the vehicle offer and customer agreement for this enquiry.</p></div><div class="autos-customer-admin-grid autos-customer-admin-grid-two">
+                    <form class="autos-customer-admin-card" data-autos-form="quote"><h4>Vehicle quotation</h4><p>Includes vehicle purchase price and LORDBLESS service fee only.</p>
+                        <label>Currency<select name="currency">${currencyOptions}</select></label><label>Vehicle purchase price<input name="purchase" type="number" min="0.01" step="0.01" required></label><label>LORDBLESS service fee<input name="fee" type="number" min="0" step="0.01" required></label>
                         <button type="submit" class="button button-primary">Publish quotation v${latestVersion + 1}</button></form>
-                    <form class="autos-customer-admin-card" data-autos-form="agreement"><h4>Customer agreement</h4>
-                        <p>Attach an approved customer-facing agreement already stored in the client document library.</p>
-                        <label>Approved agreement document<select name="document" required><option value="">Select an approved AUTOS agreement</option>${data.documents.filter(item => String(item.document_type || "").toLowerCase().includes("agreement")).map(item => `<option value="${escape(item.id)}">${escape(item.document_name || item.file_name || item.id)} · ${escape(item.id)}</option>`).join("")}</select></label>
-                        <label>Agreement reference<input name="reference" required maxlength="120"></label>
-                        <p>Each published agreement receives the next version number automatically.</p>
-                        <button type="submit" class="button button-primary">Send for acceptance</button></form>
-                    <form class="autos-customer-admin-card" data-autos-form="logistics"><h4>Separate logistics statement</h4>
-                        <label>Statement reference<input name="reference" required maxlength="100"></label>
-                        <label>Currency<select name="currency">${currencyOptions}</select></label>
-                        <label>Costs (one per line: name | amount)<textarea name="items" required placeholder="Shipping | 0.00&#10;Insurance | 0.00"></textarea></label>
-                        <button type="submit" class="button button-primary">Issue logistics statement</button></form>
-                    <form class="autos-customer-admin-card" data-autos-form="payment"><h4>Payment request</h4>
-                        <label>Type<select name="type"><option value="vehicle_purchase">Vehicle purchase</option><option value="service_fee">Service fee</option><option value="logistics">Logistics</option></select></label>
-                        <label>Accepted quotation / logistics statement<select name="related" required data-autos-related>${paymentFormOptions}</select></label>
-                        <label>Reference<input name="reference" required maxlength="100"></label>
-                        <label>Amount<input name="amount" type="number" min="0.01" step="0.01" required></label>
-                        <label>Currency<select name="currency">${currencyOptions}</select></label>
-                        <label>Instructions<textarea name="instructions" maxlength="3000"></textarea></label>
-                        <button type="submit" class="button button-primary">Create payment request</button></form>
-                    <form class="autos-customer-admin-card" data-autos-form="update"><h4>Customer update</h4>
-                        <label>Title<input name="title" required maxlength="160"></label><label>Message<textarea name="message" required maxlength="3000"></textarea></label>
-                        <button type="submit" class="button button-primary">Publish update</button></form>
+                    <form class="autos-customer-admin-card" data-autos-form="agreement"><h4>Customer agreement</h4><p>Attach an approved customer-facing agreement already stored in the client document library.</p>
+                        <label>Approved agreement document<select name="document" required><option value="">${agreementOptions ? "Select an approved agreement for this enquiry" : "No approved agreement documents linked to this enquiry"}</option>${agreementOptions}</select></label><label>Agreement reference<input name="reference" required maxlength="120"></label><p>Each published agreement receives the next version number automatically.</p>
+                        <button type="submit" class="button button-primary">Send for acceptance</button></form></div></section>
+                    <section class="autos-customer-admin-section"><div class="autos-customer-admin-section-heading"><span>LOGISTICS</span><p>Issue transport and related costs separately from the vehicle quotation.</p></div>
+                    <form class="autos-customer-admin-card" data-autos-form="logistics"><h4>Separate logistics statement</h4><label>Statement reference<input name="reference" required maxlength="100"></label><label>Currency<select name="currency">${currencyOptions}</select></label><label>Costs (one per line: name | amount)<textarea name="items" required placeholder="Shipping | 0.00&#10;Insurance | 0.00"></textarea></label>
+                        <button type="submit" class="button button-primary">Issue logistics statement</button></form></section>
+                    <section class="autos-customer-admin-section"><div class="autos-customer-admin-section-heading"><span>PAYMENT</span><p>Requests must match an accepted quotation or issued logistics statement exactly.</p></div>
+                    <form class="autos-customer-admin-card" data-autos-form="payment"><h4>Payment request</h4><label>Type<select name="type"><option value="vehicle_purchase">Vehicle purchase</option><option value="service_fee">Service fee</option><option value="logistics">Logistics</option></select></label>
+                        <label>Accepted quotation / logistics statement<select name="related" required data-autos-related><option value="">Select request type first</option></select></label><label>Reference<input name="reference" required maxlength="100"></label>
+                        <label>Amount<input name="amount" type="number" min="0.01" step="0.01" required readonly aria-describedby="autos-payment-source-help"></label><label>Currency<select name="currency" aria-describedby="autos-payment-source-help">${currencyOptions}</select></label><small id="autos-payment-source-help" class="autos-customer-field-help">Amount and currency follow the accepted source record.</small>
+                        <label>Instructions<textarea name="instructions" maxlength="3000"></textarea></label><button type="submit" class="button button-primary">Create payment request</button></form></section>
+                    <section class="autos-customer-admin-section"><div class="autos-customer-admin-section-heading"><span>CUSTOMER COMMUNICATION</span><p>Publish a clear update to this customer’s AUTOS portal.</p></div>
+                    <form class="autos-customer-admin-card" data-autos-form="update"><h4>Customer update</h4><label>Title<input name="title" required maxlength="160"></label><label>Message<textarea name="message" required maxlength="3000"></textarea></label><button type="submit" class="button button-primary">Publish update</button></form></section>
                 </div>
-                <p class="autos-customer-admin-message" role="status" data-autos-message></p>
-                <div class="autos-customer-admin-grid">${renderRecords(data)}</div>`;
+                <p class="autos-customer-admin-message" role="status" data-autos-message></p><div class="autos-customer-admin-grid">${renderRecords(data)}</div>`;
             container.querySelectorAll("form[data-autos-form]").forEach(form => form.addEventListener("submit", event => save(event, form, data)));
-            container.querySelector('[name="type"]')?.addEventListener("change", event => {
-                const type = event.currentTarget.value;
-                container.querySelectorAll("[data-autos-related] option[data-kind]").forEach(option => {
-                    option.hidden = type === "logistics" ? option.dataset.kind !== "logistics" : option.dataset.kind !== "quote";
-                });
-                container.querySelector("[data-autos-related]").value = "";
-            });
+            container.querySelector('[name="type"]')?.addEventListener("change", () => refreshPaymentSources(data));
+            container.querySelector('[name="related"]')?.addEventListener("change", syncPaymentSource);
+            container.querySelector('[data-autos-form="payment"] [name="currency"]')?.addEventListener("change", syncPaymentSource);
             container.querySelector('[name="type"]')?.dispatchEvent(new Event("change", { bubbles:true }));
             container.querySelectorAll("[data-autos-verify]").forEach(button => button.addEventListener("click", () => verify(button)));
+            container.querySelector("[data-autos-refresh]")?.addEventListener("click", async event => {
+                const button = event.currentTarget; button.disabled = true;
+                const hasDraftInput = Array.from(container.querySelectorAll('form[data-autos-form] input, form[data-autos-form] textarea'))
+                    .some(input => String(input.value || "").trim());
+                if (hasDraftInput && !window.confirm("Refreshing records will clear unsaved form entries. Continue?")) {
+                    button.disabled = false;
+                    return;
+                }
+                const message = container.querySelector("[data-autos-message]"); message.textContent = "Refreshing saved transaction records…";
+                try { render(await load()); container.querySelector("[data-autos-message]").textContent = "Transaction records refreshed."; }
+                catch (error) { message.textContent = error?.message || "Transaction records could not be refreshed."; button.disabled = false; }
+            });
         };
+
+        function refreshPaymentSources(data) {
+            const type = container.querySelector('[name="type"]')?.value;
+            const related = container.querySelector('[name="related"]');
+            if (!related) return;
+            const sources = type === "logistics"
+                ? data.logistics.filter(row => row.status === "issued" && Number(row.total_amount) > 0).map(row => ({ id:row.id, label:row.statement_reference, amount:row.total_amount, currency:row.currency }))
+                : data.quotes.filter(row => row.status === "accepted").map(row => ({ id:row.id, label:`${row.quote_reference} · v${row.version}`, amount:type === "service_fee" ? row.lordbless_service_fee : row.vehicle_purchase_price, currency:row.currency })).filter(row => Number(row.amount) > 0);
+            related.innerHTML = `<option value="">${sources.length ? "Select a matching accepted record" : "No matching accepted or issued records available"}</option>${sources.map(row => `<option value="${escape(row.id)}" data-amount="${escape(row.amount)}" data-currency="${escape(row.currency)}">${escape(row.label)}</option>`).join("")}`;
+            related.value = ""; syncPaymentSource();
+        }
+
+        function syncPaymentSource() {
+            const related = container.querySelector('[name="related"]');
+            const amount = container.querySelector('[data-autos-form="payment"] [name="amount"]');
+            const currency = container.querySelector('[data-autos-form="payment"] [name="currency"]');
+            const selected = related?.selectedOptions?.[0];
+            const sourceCurrency = selected?.dataset?.currency || "";
+            if (amount) amount.value = selected?.dataset?.amount || "";
+            if (currency && sourceCurrency) currency.value = sourceCurrency;
+        }
 
         function renderRecords(data) {
             const card = (title, rows, map) => `<section class="autos-customer-admin-card"><h4>${title}</h4>${rows.length ? rows.map(map).join("") : "<p>None yet.</p>"}</section>`;
@@ -142,6 +168,12 @@
                     case "payment": {
                         const type = values.get("type");
                         const relatedId = String(values.get("related") || "");
+                        if (!relatedId) throw new Error("Select an eligible accepted quotation or issued logistics statement first.");
+                        const source = form.querySelector('[name="related"]')?.selectedOptions?.[0];
+                        if (!source?.dataset?.amount || !source?.dataset?.currency) throw new Error("The selected source is unavailable. Refresh the saved records and try again.");
+                        if (values.get("currency") !== source.dataset.currency || Number(values.get("amount")) !== Number(source.dataset.amount)) {
+                            throw new Error("The payment request must match the selected source amount and currency.");
+                        }
                         const logistics = type === "logistics";
                         const { error } = await lordblessSupabase.rpc("create_autos_payment_request", {
                             p_client_id:context.clientId,p_enquiry_id:context.enquiryId,p_reference:String(values.get("reference")).trim(),
