@@ -1200,6 +1200,21 @@ async function handleClientPortalSession(session) {
             return;
         }
 
+        if (window.LORDBLESS_CLIENT_PORTAL_ROUTING?.resolve) {
+            const route = await window.LORDBLESS_CLIENT_PORTAL_ROUTING.resolve(account.access_status);
+            account.access_status = route.accessStatus || account.access_status;
+            if (route.destination === "autos") {
+                window.location.replace("../autos-portal.html");
+                return;
+            }
+            if (route.destination === "restricted") {
+                clientAuthLookupUserId = null;
+                clientAuthResolvedUserId = null;
+                window.location.replace("../portal-login.html?error=client-access-inactive");
+                return;
+            }
+        }
+
         clientAccountAccessStatus = account.access_status;
 
         let clientResult = await lordblessSupabase

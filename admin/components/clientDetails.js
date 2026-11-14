@@ -570,6 +570,7 @@
                     </div>
                 </details>
                 ${renderJourneyManagement(model)}
+                ${isAutosEnquiry(enquiry) ? `<section class="detail-card full-width autos-customer-portal-admin" data-autos-customer-portal data-client-id="${escapeClientDetails(model.clientId || client.id || client.client_id || "")}" data-enquiry-id="${escapeClientDetails(enquiry.id || "")}"><p>Loading AUTOS customer transaction tools…</p></section>` : ""}
                 ${isAutosEnquiry(enquiry) ? "" : renderAssessment(model, model.clientId)}
                 ${isAutosEnquiry(enquiry) ? "" : renderAppointments(model, model.clientId)}
                 ${renderClientDocuments(model)}

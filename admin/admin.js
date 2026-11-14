@@ -7910,6 +7910,16 @@ function renderAdminEnquiryClientView(enquiry, portalState) {
         }
     );
 
+    const autosCustomerPortal = modalContent.querySelector("[data-autos-customer-portal]");
+    if (autosEnquiry && autosCustomerPortal && window.LORDBLESS_AUTOS_CUSTOMER_ADMIN?.mount) {
+        window.LORDBLESS_AUTOS_CUSTOMER_ADMIN.mount(autosCustomerPortal, {
+            clientId,
+            enquiryId: enquiry.id,
+            clientName: enquiry.client?.full_name || enquiry.client?.fullName || enquiry.client_name || "Client",
+            enquiryReference: enquiry.reference || enquiry.enquiry_reference || enquiry.id
+        });
+    }
+
     bindAdminAssessmentActions(enquiry, portalState || {});
 
     if (isSupabaseClientId(clientId) && (hasPermission(getCurrentUser(), "journeys.read") || hasPermission(getCurrentUser(), "autos.manage"))) {

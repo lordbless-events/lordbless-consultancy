@@ -1,0 +1,11 @@
+.autos-customer-portal-admin { margin-top: 18px; }
+.autos-customer-admin-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr)); gap:14px; margin-top:14px; }
+.autos-customer-admin-card { min-width:0; border:1px solid #e6e2dc; border-radius:12px; padding:16px; background:#fff; }
+.autos-customer-admin-card h4 { margin:0 0 12px; color:#18263d; }
+.autos-customer-admin-card label { display:grid; gap:5px; margin:10px 0; font-size:13px; }
+.autos-customer-admin-card input,.autos-customer-admin-card select,.autos-customer-admin-card textarea { width:100%; min-width:0; padding:9px 10px; border:1px solid #d5d8dd; border-radius:7px; font:inherit; }
+.autos-customer-admin-card textarea { min-height:72px; resize:vertical; }
+.autos-customer-admin-card button { margin-top:8px; }
+.autos-customer-admin-record { padding:10px 0; border-top:1px solid #eee; overflow-wrap:anywhere; }
+.autos-customer-admin-status { color:#9b652f; font-size:12px; font-weight:700; text-transform:uppercase; }
+.autos-customer-admin-message { min-height:1.4em; color:#536174; }

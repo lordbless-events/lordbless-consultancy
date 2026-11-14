@@ -110,18 +110,27 @@ function showPortalLogin(message) {
     portalAuthMessage.textContent = message;
 }
 
-function routePortalRole(role) {
-    if (portalRedirectStarted) return;
-
-    const destinations = {
-        admin: "admin/index.html",
-        client: "client/index.html"
-    };
-
-    if (!destinations[role]) return;
-
+async function routePortalRole(role, clientAccessStatus = "active") {
+    if (portalRedirectStarted || !["admin", "client"].includes(role)) return;
     portalRedirectStarted = true;
-    window.location.assign(destinations[role]);
+
+    let destination = role === "admin" ? "admin/index.html" : "";
+
+    if (role === "client") {
+        try {
+            const decision = await window.LORDBLESS_CLIENT_PORTAL_ROUTING?.resolve(clientAccessStatus);
+            destination = decision?.destination === "autos" ? "autos-portal.html" : "client/index.html";
+        } catch (error) {
+            console.warn("Client portal routing check unavailable:", error?.message || error);
+            destination = "client/index.html";
+        }
+    }
+
+    if (!destination) {
+        portalRedirectStarted = false;
+        return;
+    }
+    window.location.assign(destination);
 }
 
 async function resolvePortalAccess(user) {
@@ -151,8 +160,8 @@ async function resolvePortalAccess(user) {
     if (staff?.active) return { portal: "admin" };
 
     if (client) {
-        if (client.access_status === "active") return { portal: "client" };
-        if (client.access_status === "activation_required") return { portal: "client" };
+        if (client.access_status === "active") return { portal: "client", accessStatus: client.access_status };
+        if (client.access_status === "activation_required") return { portal: "client", accessStatus: client.access_status };
         if (client.access_status === "invited") return { invited: true };
 
         const status = String(client.access_status || "unknown").replaceAll("_", " ");
@@ -202,8 +211,10 @@ async function handlePortalSession(session) {
             return;
         }
 
+        if (version !== portalResolutionVersion) return;
+
         portalAuthMessage.textContent = "Access confirmed. Opening your portal...";
-        routePortalRole(access.portal);
+        await routePortalRole(access.portal, access.accessStatus || "active");
     } catch (error) {
         if (version !== portalResolutionVersion) return;
         portalAuthMessage.dataset.error = "true";
@@ -336,7 +347,7 @@ portalResetPasswordForm.addEventListener("submit", async event => {
                 portalPasswordResetComplete = true;
                 portalResetMode = false;
                 portalAuthMessage.textContent = "Your account is ready. Opening your Client Portal...";
-                routePortalRole("client");
+                await routePortalRole("client", activationStatus);
                 return;
             }
         }
