@@ -4164,6 +4164,80 @@ p {
 
 }
 
+.profile-settings-divider {
+    height: 1px;
+    margin: 24px 0;
+    background: var(--border-light);
+}
+
+.client-settings-form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 15px 18px;
+}
+
+.client-settings-form > label {
+    display: grid;
+    gap: 7px;
+    min-width: 0;
+    color: var(--text-700);
+    font-size: 12px;
+    font-weight: 650;
+}
+
+.client-settings-form input {
+    width: 100%;
+    min-width: 0;
+    min-height: 43px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-light);
+    border-radius: 8px;
+    background: var(--white);
+    color: var(--text-900);
+    font: inherit;
+}
+
+.client-settings-form input:focus {
+    outline: 2px solid var(--champagne-300);
+    outline-offset: 1px;
+}
+
+.client-settings-message,
+.client-settings-note {
+    grid-column: 1 / -1;
+    min-height: 1.4em;
+    margin: 0;
+    color: var(--text-500);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.client-settings-note {
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: #f6f7f9;
+}
+
+.client-settings-form [hidden] {
+    display: none !important;
+}
+
+.client-settings-form button {
+    justify-self: start;
+    min-height: 42px;
+    padding: 10px 16px;
+}
+
+.client-settings-password-card {
+    margin-top: 18px;
+}
+
+@media (max-width: 680px) {
+    .client-settings-form {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
 
 .profile-detail span {
 

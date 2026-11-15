@@ -1,0 +1,26 @@
+.lbc-settings { max-width: 1120px; margin-inline: auto; }
+.lbc-settings > .section-header { align-items: flex-start; }
+.lbc-settings-panel { margin: 20px 0; padding: clamp(18px, 3vw, 26px); border: 1px solid #e1e5ea; border-radius: 14px; background: #fff; box-shadow: 0 6px 22px #15243b0a; }
+.lbc-settings-panel-heading { display: flex; justify-content: space-between; gap: 16px; margin: 4px 0 16px; padding-bottom: 11px; border-bottom: 1px solid #e8ebef; }
+.lbc-settings-panel-heading:not(:first-child) { margin-top: 25px; }
+.lbc-settings-panel-heading span { color: #8a6536; font-size: 11px; font-weight: 800; letter-spacing: .13em; }
+.lbc-settings-panel-heading p { margin: 5px 0 0; color: #657184; line-height: 1.5; }
+.lbc-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; }
+.lbc-settings-grid > label,.lbc-settings-password-form > label { display: grid; gap: 6px; min-width: 0; color: #344054; font-size: 13px; font-weight: 650; }
+.lbc-settings-grid input,.lbc-settings-grid textarea,.lbc-settings-grid select,.lbc-settings-password-form input { width: 100%; min-width: 0; min-height: 42px; padding: 10px 11px; border: 1px solid #cbd2dc; border-radius: 8px; background: #fff; color: #263246; font: inherit; font-weight: 400; }
+.lbc-settings-grid textarea { min-height: 84px; resize: vertical; }
+.lbc-settings-grid small,.lbc-settings-field small { color: #657184; font-size: 12px; font-weight: 400; line-height: 1.45; }
+.lbc-settings-field { display: grid; align-content: start; gap: 8px; color: #344054; font-size: 13px; font-weight: 650; }
+.lbc-settings-currencies { display: flex; flex-wrap: wrap; gap: 8px; }
+.lbc-settings-currencies span { display: inline-flex; padding: 6px 11px; border: 1px solid #eadbc5; border-radius: 999px; background: #faf6ef; color: #72512b; font-weight: 750; }
+.lbc-settings-panel > button,.lbc-settings-password-form button { min-height: 41px; padding: 9px 16px; }
+.lbc-settings-message { min-height: 1.4em; margin: 12px 0; color: #536174; }
+.lbc-settings-error { padding: 12px 14px; border: 1px solid #f1c7c7; border-radius: 8px; background: #fff7f7; color: #8c2b2b; }
+.lbc-settings-notice { padding: 12px 14px; border-radius: 8px; background: #f5f7fa; color: #536174; }
+.lbc-settings-updated { display: block; margin-top: 9px; color: #657184; }
+.lbc-settings-password-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; }
+.lbc-settings-password-form [data-password-message],.lbc-settings-password-form button { grid-column: 1 / -1; }
+.lbc-settings-password-form [hidden] { display: none !important; }
+.lbc-settings-signout { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 24px; padding-top: 18px; border-top: 1px solid #e8ebef; }
+.lbc-settings-signout p { margin: 4px 0 0; color: #657184; font-size: 13px; }
+@media (max-width: 680px) { .lbc-settings-grid,.lbc-settings-password-form { grid-template-columns: minmax(0, 1fr); } .lbc-settings-signout { align-items: flex-start; flex-direction: column; } }

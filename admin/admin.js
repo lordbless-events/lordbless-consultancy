@@ -298,6 +298,10 @@ function applyAdminAuthSession(session) {
                 await loadAdminJourneys();
             }
 
+            if (hasPermission(identity, "consultations.manage")) {
+                void window.LORDBLESS_ADMIN_SETTINGS?.loadAppointmentTimezoneDefault?.();
+            }
+
             state.currentView = allowedView;
             renderView(allowedView);
 
@@ -2906,10 +2910,11 @@ function renderView(
 
         case "settings":
 
-            renderPlaceholder(
-                "Settings",
-                "Portal settings will appear here."
-            );
+            if (window.LORDBLESS_ADMIN_SETTINGS?.render) {
+                void window.LORDBLESS_ADMIN_SETTINGS.render(appContent);
+            } else {
+                renderPlaceholder("Settings", "The Settings module could not be loaded.");
+            }
 
             break;
 

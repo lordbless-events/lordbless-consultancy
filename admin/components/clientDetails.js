@@ -199,6 +199,11 @@
         if (isAutosEnquiry(model.enquiry || {})) return "";
         const payment = model.assessmentPayment || null;
         const meeting = model.consultationMeeting || null;
+        const defaultTimezone = window.LORDBLESS_DEFAULT_APPOINTMENT_TIMEZONE || "Europe/Berlin";
+        const appointmentTimezone = meeting?.timezone || defaultTimezone;
+        const appointmentTimezones = [...new Set([
+            "Europe/Berlin", "Africa/Accra", "UTC", "America/Toronto", "Asia/Shanghai", appointmentTimezone
+        ].filter(Boolean))];
         if (!model.canReadAssessment) {
             return `<section class="detail-card full-width"><h3>Initial Assessment &amp; Consultation</h3><p>Finance permission is required to view this assessment payment.</p></section>`;
         }
@@ -295,7 +300,7 @@
                         <label>MEETING DATE<input name="meeting_date" type="date" required value="${escapeClientDetails(inputs.date)}"></label>
                         <label>START TIME<input name="meeting_time" type="time" required value="${escapeClientDetails(inputs.time)}"></label>
                         <label>TIMEZONE<select name="timezone" required>
-                            ${["Europe/Berlin", "Africa/Accra", "UTC", "America/Toronto", "Asia/Shanghai"].map(zone => `<option value="${zone}" ${(meeting?.timezone || "Europe/Berlin") === zone ? "selected" : ""}>${zone}</option>`).join("")}
+                            ${appointmentTimezones.map(zone => `<option value="${escapeClientDetails(zone)}" ${appointmentTimezone === zone ? "selected" : ""}>${escapeClientDetails(zone)}</option>`).join("")}
                         </select></label>
                         <label>DURATION (MINUTES)<input name="duration_minutes" type="number" min="15" max="120" step="15" value="${escapeClientDetails(meeting?.duration_minutes || 30)}" required></label>
                         <label>MODE<select name="mode"><option value="online" ${meeting?.mode === "online" ? "selected" : ""}>Online</option><option value="phone" ${meeting?.mode === "phone" ? "selected" : ""}>Phone</option><option value="in_person" ${meeting?.mode === "in_person" ? "selected" : ""}>In person</option></select></label>

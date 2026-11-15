@@ -543,7 +543,7 @@ let clientDocumentViewRequestPromise = null;
 let clientApplicationJourneyId = null;
 
 
-function applyAuthenticatedClientRecord(client) {
+function applyAuthenticatedClientRecord(client, registeredEmail = "") {
 
     Object.assign(
         LORDBLESS_CLIENT_ACCOUNT,
@@ -551,7 +551,7 @@ function applyAuthenticatedClientRecord(client) {
             id: client.id,
             clientCode: client.client_code || client.clientCode || null,
             fullName: client.full_name || "",
-            email: client.email || "",
+            email: registeredEmail || client.email || "",
             whatsapp: client.whatsapp || "",
             currentCountry: client.current_country || "",
             nationality: client.nationality || "",
@@ -1238,8 +1238,9 @@ async function handleClientPortalSession(session) {
             throw new Error("The linked client profile is unavailable.");
         }
 
-        applyAuthenticatedClientRecord(client);
+        applyAuthenticatedClientRecord(client, session.user.email || "");
         populateClientIdentity();
+        initialiseClientSettingsForms();
         await loadClientOnboardingData(client.id);
         if (account.access_status === "active") {
             await loadAuthenticatedClientJourneys(client.id);
@@ -1451,6 +1452,18 @@ function populateClientIdentity() {
     );
 
     setText(
+        "profile-account-status",
+        ({
+            active: "Active",
+            activation_required: "Activation required",
+            invited: "Invitation pending",
+            suspended: "Suspended",
+            revoked: "Access revoked",
+            closed: "Closed"
+        })[clientAccountAccessStatus] || "Unavailable"
+    );
+
+    setText(
         "profile-passport",
         LORDBLESS_CLIENT_ACCOUNT.passportNumber
     );
@@ -1472,6 +1485,124 @@ function populateClientIdentity() {
 
     updatePassportProfileStatus();
 
+}
+
+
+function initialiseClientSettingsForms() {
+
+    const profileForm = document.getElementById("client-profile-form");
+    if (profileForm) {
+        profileForm.elements.full_name.value = LORDBLESS_CLIENT_ACCOUNT.fullName || "";
+        profileForm.elements.whatsapp.value = LORDBLESS_CLIENT_ACCOUNT.whatsapp || "";
+        profileForm.elements.nationality.value = LORDBLESS_CLIENT_ACCOUNT.nationality || "";
+        profileForm.elements.current_country.value = LORDBLESS_CLIENT_ACCOUNT.currentCountry || "";
+
+        const lockedNotice = profileForm.querySelector("[data-profile-locked]");
+        const saveButton = profileForm.querySelector('[type="submit"]');
+        const isActive = clientAccountAccessStatus === "active";
+        if (lockedNotice) lockedNotice.hidden = isActive;
+        if (saveButton) saveButton.disabled = !isActive;
+
+        if (profileForm.dataset.initialised !== "true") {
+            profileForm.dataset.initialised = "true";
+            profileForm.addEventListener("submit", saveClientProfile);
+        }
+    }
+
+    const passwordForm = document.getElementById("client-password-form");
+    if (passwordForm && passwordForm.dataset.initialised !== "true") {
+        passwordForm.dataset.initialised = "true";
+        passwordForm.addEventListener("submit", changeClientPassword);
+    }
+}
+
+
+async function saveClientProfile(event) {
+
+    event.preventDefault();
+    const form = event.currentTarget;
+    const message = form.querySelector("[data-profile-message]");
+    const button = form.querySelector('[type="submit"]');
+    const payload = {
+        p_full_name: form.elements.full_name.value.trim(),
+        p_whatsapp: form.elements.whatsapp.value.trim(),
+        p_nationality: form.elements.nationality.value.trim(),
+        p_current_country: form.elements.current_country.value.trim()
+    };
+
+    if (clientAccountAccessStatus !== "active") {
+        message.textContent = "Only an active client account can update profile information.";
+        return;
+    }
+    if (!payload.p_full_name || payload.p_full_name.length > 160 ||
+        payload.p_whatsapp.length > 40 || payload.p_nationality.length > 100 ||
+        payload.p_current_country.length > 100) {
+        message.textContent = "Check the name and field lengths, then try again.";
+        return;
+    }
+
+    button.disabled = true;
+    message.textContent = "Saving profile…";
+    try {
+        const { data, error } = await lordblessSupabase.rpc("update_my_client_profile", payload);
+        if (error) throw error;
+        LORDBLESS_CLIENT_ACCOUNT.fullName = data?.full_name ?? payload.p_full_name;
+        LORDBLESS_CLIENT_ACCOUNT.whatsapp = data?.whatsapp ?? payload.p_whatsapp;
+        LORDBLESS_CLIENT_ACCOUNT.nationality = data?.nationality ?? payload.p_nationality;
+        LORDBLESS_CLIENT_ACCOUNT.currentCountry = data?.current_country ?? payload.p_current_country;
+        populateClientIdentity();
+        message.textContent = "Profile updated.";
+    } catch (error) {
+        message.textContent = error?.message || "Profile could not be saved.";
+    } finally {
+        button.disabled = false;
+    }
+}
+
+
+async function changeClientPassword(event) {
+
+    event.preventDefault();
+    const form = event.currentTarget;
+    const message = form.querySelector("[data-password-message]");
+    const button = form.querySelector('[type="submit"]');
+    const password = form.elements.password.value;
+    const confirmation = form.elements.confirm_password.value;
+    const nonce = form.elements.nonce.value.trim();
+
+    if (password.length < 8) {
+        message.textContent = "Use a password with at least 8 characters.";
+        return;
+    }
+    if (password !== confirmation) {
+        message.textContent = "The password confirmation does not match.";
+        return;
+    }
+
+    button.disabled = true;
+    message.textContent = "Updating password securely…";
+    try {
+        const attributes = { password };
+        if (nonce) attributes.nonce = nonce;
+        const { error } = await lordblessSupabase.auth.updateUser(attributes);
+        if (error?.code === "reauthentication_needed" && !nonce) {
+            const { error: reauthError } = await lordblessSupabase.auth.reauthenticate();
+            if (reauthError) throw reauthError;
+            form.querySelector("[data-client-reauth-field]").hidden = false;
+            form.elements.nonce.required = true;
+            message.textContent = "A verification code was sent to your registered email. Enter it above, then submit again.";
+            return;
+        }
+        if (error) throw error;
+        form.reset();
+        form.querySelector("[data-client-reauth-field]").hidden = true;
+        form.elements.nonce.required = false;
+        message.textContent = "Password updated successfully.";
+    } catch (error) {
+        message.textContent = error?.message || "Password could not be updated.";
+    } finally {
+        button.disabled = false;
+    }
 }
 
 
