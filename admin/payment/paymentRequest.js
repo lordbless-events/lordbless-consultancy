@@ -1466,6 +1466,24 @@
             handleFormSubmit
         );
 
+        const submitButton = form.querySelector('[type="submit"]');
+        if (submitButton && submitButton.dataset.lordblessPaymentSubmitAttached !== "true") {
+            submitButton.addEventListener("click", event => {
+                // Native constraint validation can suppress the submit event
+                // entirely. Validate explicitly, then send valid button clicks
+                // through the same handler used by keyboard form submission.
+                event.preventDefault();
+                if (typeof form.reportValidity === "function" && !form.reportValidity()) {
+                    return;
+                }
+                void handleFormSubmit({
+                    preventDefault() {},
+                    currentTarget: form
+                });
+            });
+            submitButton.dataset.lordblessPaymentSubmitAttached = "true";
+        }
+
 
         form.dataset
             .lordblessPaymentRequestAttached =
