@@ -1177,6 +1177,51 @@ let LORDBLESS_ASSESSMENT_FINANCE_LOADED = false;
 let LORDBLESS_ASSESSMENT_FINANCE_LOADED_AT = 0;
 let LORDBLESS_ASSESSMENT_FINANCE_LOADING = false;
 let LORDBLESS_ASSESSMENT_FINANCE_ERROR = "";
+let LORDBLESS_CENTRAL_SERVICE_PAYMENTS_LOADED_AT = 0;
+let LORDBLESS_CENTRAL_SERVICE_PAYMENTS_LOADING = false;
+let LORDBLESS_CENTRAL_SERVICE_PAYMENTS_ERROR = "";
+let LORDBLESS_CENTRAL_SERVICE_PAYMENTS_DATA = { requests: [], submissions: [], payments: [], receipts: [] };
+
+
+async function loadAdminCentralServicePayments(force = false) {
+    if (LORDBLESS_CENTRAL_SERVICE_PAYMENTS_LOADING) return;
+    if (!force && Date.now() - LORDBLESS_CENTRAL_SERVICE_PAYMENTS_LOADED_AT < 15000) return;
+    if (!window.LORDBLESS_CENTRAL_SERVICE_PAYMENTS) return;
+    LORDBLESS_CENTRAL_SERVICE_PAYMENTS_LOADING = true;
+    try {
+        LORDBLESS_CENTRAL_SERVICE_PAYMENTS_DATA =
+            await window.LORDBLESS_CENTRAL_SERVICE_PAYMENTS.loadAdmin();
+        LORDBLESS_CENTRAL_SERVICE_PAYMENTS_ERROR = "";
+        const bridge = window.LORDBLESS_PAYMENT_BRIDGE;
+        bridge?.setRemotePaymentSnapshot?.({
+            paymentRequests: LORDBLESS_CENTRAL_SERVICE_PAYMENTS_DATA.requests,
+            paymentRecords: LORDBLESS_CENTRAL_SERVICE_PAYMENTS_DATA.payments,
+            receipts: LORDBLESS_CENTRAL_SERVICE_PAYMENTS_DATA.receipts
+        });
+        const legacy = bridge?.load?.() || {};
+        const keepLegacy = list => (Array.isArray(list) ? list : []).filter(item => !item?.databaseServicePayment);
+        window.LORDBLESS_PAYMENT_REQUESTS = [
+            ...keepLegacy(legacy.paymentRequests),
+            ...LORDBLESS_CENTRAL_SERVICE_PAYMENTS_DATA.requests
+        ];
+        window.LORDBLESS_PAYMENTS = [
+            ...keepLegacy(legacy.paymentRecords),
+            ...LORDBLESS_CENTRAL_SERVICE_PAYMENTS_DATA.payments
+        ];
+        window.LORDBLESS_RECEIPTS = [
+            ...keepLegacy(legacy.receipts),
+            ...LORDBLESS_CENTRAL_SERVICE_PAYMENTS_DATA.receipts
+        ];
+    } catch (error) {
+        LORDBLESS_CENTRAL_SERVICE_PAYMENTS_ERROR = error?.message || "Service payment records could not be loaded.";
+    } finally {
+        LORDBLESS_CENTRAL_SERVICE_PAYMENTS_LOADING = false;
+        LORDBLESS_CENTRAL_SERVICE_PAYMENTS_LOADED_AT = Date.now();
+        if (["overview", "payments", "verification", "receipts", "reports"].includes(LORDBLESS_FINANCE_ACTIVE_VIEW)) {
+            renderFinanceView(LORDBLESS_FINANCE_ACTIVE_VIEW);
+        }
+    }
+}
 
 
 function getFinancePaymentRequests() {
@@ -1188,9 +1233,8 @@ function getFinancePaymentRequests() {
         const data =
             window.LORDBLESS_PAYMENT_BRIDGE.load();
 
-        return mergeAdminAssessmentRequests(
-            Array.isArray(data.paymentRequests) ? data.paymentRequests : []
-        );
+        const local = Array.isArray(data.paymentRequests) ? data.paymentRequests : [];
+        return mergeAdminAssessmentRequests(local);
     }
 
     return Array.isArray(
@@ -1324,6 +1368,11 @@ window.addEventListener("lordbless:assessment-payment-request-created", () => {
     LORDBLESS_ASSESSMENT_FINANCE_LOADED = false;
     LORDBLESS_ASSESSMENT_FINANCE_LOADED_AT = 0;
     loadAdminAssessmentFinanceRequests();
+});
+
+window.addEventListener("lordbless:central-service-payment-updated", () => {
+    LORDBLESS_CENTRAL_SERVICE_PAYMENTS_LOADED_AT = 0;
+    void loadAdminCentralServicePayments(true);
 });
 
 
@@ -2002,6 +2051,7 @@ function renderFinanceView(
 
     if (["overview", "payments", "verification", "receipts", "reports"].includes(view)) {
         loadAdminAssessmentFinanceRequests();
+        void loadAdminCentralServicePayments();
     }
 
 
@@ -2155,14 +2205,17 @@ function renderFinanceView(
         case "verification": {
 
             loadAdminAssessmentFinanceRequests();
-            const localRequests = getFinancePaymentRequests();
+            const localRequests = getFinancePaymentRequests().filter(request => !request?.databaseServicePayment);
             const databaseClientIds = new Set(
                 LORDBLESS_ASSESSMENT_FINANCE_REQUESTS.map(request => request.clientId)
             );
+            const centralSubmissions = (LORDBLESS_CENTRAL_SERVICE_PAYMENTS_DATA.submissions || [])
+                .filter(item => item.verificationStatus === "pending");
             const requests = [
                 ...localRequests.filter(request =>
                     !(request?.purpose === "initial_assessment_consultation" && databaseClientIds.has(request.clientId))
                 ),
+                ...centralSubmissions,
                 ...LORDBLESS_ASSESSMENT_FINANCE_REQUESTS
             ].filter(
                         request =>
@@ -2366,7 +2419,7 @@ function renderFinanceView(
                                         .LORDBLESS_PAYMENT_VERIFICATION
                                         .render(
                                             container,
-                                            selectedRequest?.databaseAssessment
+                                            selectedRequest?.databaseAssessment || selectedRequest?.databaseServicePayment
                                                 ? selectedRequest
                                                 : requestId,
                                             {
@@ -2703,6 +2756,12 @@ function renderFinanceView(
         container.insertAdjacentHTML(
             "afterbegin",
             `<p class="section-description" role="alert">Persistent initial assessment payments could not be loaded: ${escapeHTML(LORDBLESS_ASSESSMENT_FINANCE_ERROR)}</p>`
+        );
+    }
+    if (LORDBLESS_CENTRAL_SERVICE_PAYMENTS_ERROR && ["overview", "payments", "verification", "receipts", "reports"].includes(view)) {
+        container.insertAdjacentHTML(
+            "afterbegin",
+            `<p class="section-description" role="alert">Central service payment records could not be loaded: ${escapeHTML(LORDBLESS_CENTRAL_SERVICE_PAYMENTS_ERROR)}</p>`
         );
     }
 
@@ -8567,6 +8626,7 @@ function renderAdminJourneyPanel(clientId) {
                         ${journey.desk
                             ? `<span>Internal team: ${escapeHTML(state.adminIdentity?.desks?.find(item => item.code === journey.desk)?.name || journey.desk)}</span>`
                             : ""}
+                        ${!isAutosJourneyPanel && ((journey.stage === "completed") !== (journey.operationalStatus === "completed")) ? `<span role="status">The saved journey stage and operational status do not match. Updating this record will reconcile them.</span>` : ""}
                         <span>Assigned: ${escapeHTML(formatDate(journey.createdAt))}</span>
                         <div class="client-journey-history" data-journey-history="${escapeHTML(journey.id)}" aria-live="polite">Loading journey history...</div>
                         ${canWriteJourneys ? `
@@ -8618,8 +8678,18 @@ function renderAdminJourneyPanel(clientId) {
     }
 
     list?.querySelectorAll("[data-journey-update-form]").forEach(form => {
+        const stageField = form.elements.stage;
+        const operationalStatusField = form.elements.operational_status;
+        const reconcileCompletion = () => {
+            if (isAutosJourneyPanel) return;
+            if (stageField.value === "completed") operationalStatusField.value = "completed";
+            else if (operationalStatusField.value === "completed") operationalStatusField.value = "active";
+        };
+        stageField.addEventListener("change", reconcileCompletion);
+        operationalStatusField.addEventListener("change", reconcileCompletion);
         form.addEventListener("submit", async event => {
             event.preventDefault();
+            reconcileCompletion();
             const button = form.querySelector('[type="submit"]');
             const message = form.querySelector("[data-journey-update-message]");
             if (button) button.disabled = true;

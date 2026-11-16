@@ -1629,6 +1629,7 @@
 
 
     function updateExistingRequestNotification(request, cancelled = false) {
+        if (request?.databaseServicePayment) return;
         const bridge = window.LORDBLESS_PAYMENT_BRIDGE;
         if (!bridge || typeof bridge.load !== "function" || typeof bridge.save !== "function") return;
 
@@ -1663,7 +1664,7 @@
     }
 
 
-    function saveRequestChange(request, action, reason, updates, closeDetails) {
+    async function saveRequestChange(request, action, reason, updates, closeDetails) {
         if (!canManagePaymentRequests()) {
             window.alert("You are not authorised to manage payment requests.");
             return false;
@@ -1675,6 +1676,24 @@
         if (protection) {
             window.alert(protection);
             return false;
+        }
+
+        if (latest?.databaseServicePayment) {
+            try {
+                if (action === "cancelled") {
+                    await window.LORDBLESS_CENTRAL_SERVICE_PAYMENTS.cancel(latest.id, reason || "");
+                } else {
+                    await window.LORDBLESS_CENTRAL_SERVICE_PAYMENTS.updateRequest(latest, updates);
+                }
+                window.dispatchEvent(new CustomEvent("lordbless:central-service-payment-updated"));
+                if (typeof closeDetails === "function") closeDetails();
+                handleFinancialChange();
+                window.alert(action === "cancelled" ? "Payment request cancelled." : "Payment request updated.");
+                return true;
+            } catch (error) {
+                window.alert(error?.message || "The central payment request could not be saved.");
+                return false;
+            }
         }
 
         const bridge = window.LORDBLESS_PAYMENT_BRIDGE;
@@ -1764,7 +1783,7 @@
         overlay.querySelector(".lbc-finance-payment-detail-close").addEventListener("click", close);
         overlay.querySelector(".lbc-finance-payment-detail-backdrop").addEventListener("click", close);
         overlay.querySelector("[data-request-edit-cancel]").addEventListener("click", close);
-        overlay.querySelector("form").addEventListener("submit", event => {
+        overlay.querySelector("form").addEventListener("submit", async event => {
             event.preventDefault();
             const values = new FormData(event.currentTarget);
             const amount = Number(values.get("amount"));
@@ -1799,12 +1818,12 @@
                 dueDate: String(values.get("dueDate") || "") || null,
                 paymentInstructions: String(values.get("paymentInstructions") || "").trim()
             };
-            if (saveRequestChange(latest, "edited", "", updates, close)) close();
+            if (await saveRequestChange(latest, "edited", "", updates, close)) close();
         });
     }
 
 
-    function cancelPaymentRequest(requestId, closeDetails) {
+    async function cancelPaymentRequest(requestId, closeDetails) {
         if (!canManagePaymentRequests()) {
             window.alert("You are not authorised to manage payment requests.");
             return;
@@ -1824,7 +1843,7 @@
         const reason = window.prompt("Cancellation reason (optional):", "");
         if (reason === null) return;
         const actor = getStaffActor();
-        saveRequestChange(request, "cancelled", reason.trim(), {
+        await saveRequestChange(request, "cancelled", reason.trim(), {
             status: "cancelled",
             cancelledAt: new Date().toISOString(),
             cancellationReason: reason.trim(),

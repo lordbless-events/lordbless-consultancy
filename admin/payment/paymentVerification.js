@@ -960,6 +960,27 @@
         const originalRequest =
             verificationState.paymentRequest;
 
+        if (originalRequest?.databaseServicePayment) {
+            const confirmButton = document.querySelector(".lbc-payment-verification [data-action='confirm']");
+            if (confirmButton) confirmButton.disabled = true;
+            try {
+                const result = await window.LORDBLESS_CENTRAL_SERVICE_PAYMENTS.verify(
+                    originalRequest.id,
+                    "verified",
+                    receivedAmount,
+                    verification.financeNote
+                );
+                const receipt = result?.receipt;
+                showMessage(`Payment verified and saved. ${receipt?.receipt_number ? `Official receipt ${receipt.receipt_number} was issued.` : ""}`);
+                window.dispatchEvent(new CustomEvent("lordbless:central-service-payment-updated"));
+                if (typeof verificationState.onComplete === "function") verificationState.onComplete();
+            } catch (error) {
+                showMessage(error?.message || "Payment verification could not be saved.", true);
+                if (confirmButton) confirmButton.disabled = false;
+            }
+            return;
+        }
+
         if (originalRequest?.databaseAssessment) {
             if (!verificationState.transactionReference.trim()) {
                 showMessage("Enter the verified bank or mobile money transaction reference.", true);
@@ -1167,7 +1188,7 @@
        REJECT
        --------------------------------------------------------- */
 
-    function rejectPayment() {
+    async function rejectPayment() {
 
         const reason =
             window.prompt(
@@ -1184,6 +1205,30 @@
 
         const request =
             verificationState.paymentRequest;
+
+        if (request?.databaseServicePayment) {
+            if (!reason.trim()) {
+                showMessage("A reason is required to reject this payment.", true);
+                return;
+            }
+            const rejectButton = document.querySelector(".lbc-payment-verification [data-action='reject']");
+            if (rejectButton) rejectButton.disabled = true;
+            try {
+                await window.LORDBLESS_CENTRAL_SERVICE_PAYMENTS.verify(
+                    request.id,
+                    "rejected",
+                    null,
+                    reason.trim()
+                );
+                showMessage("Payment submission rejected. The client can submit replacement payment details.");
+                window.dispatchEvent(new CustomEvent("lordbless:central-service-payment-updated"));
+                if (typeof verificationState.onComplete === "function") verificationState.onComplete();
+            } catch (error) {
+                showMessage(error?.message || "Payment rejection could not be saved.", true);
+                if (rejectButton) rejectButton.disabled = false;
+            }
+            return;
+        }
 
 
         /*

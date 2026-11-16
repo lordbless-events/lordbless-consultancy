@@ -39,12 +39,14 @@
     const CHANNEL_NAME =
         "LORDBLESS_PORTAL_CHANNEL_V1";
 
+    let remotePaymentSnapshot = { paymentRequests: [], paymentRecords: [], receipts: [] };
+
 
     /* ========================================================
        LOAD SHARED DATA
     ======================================================== */
 
-    function load() {
+    function loadLocal() {
 
         try {
 
@@ -149,6 +151,32 @@
     }
 
 
+    function load() {
+        const local = loadLocal();
+        const merge = (a, b) => {
+            const records = new Map();
+            [...(Array.isArray(a) ? a : []), ...(Array.isArray(b) ? b : [])]
+                .forEach(item => { if (item?.id) records.set(String(item.id), item); });
+            return [...records.values()];
+        };
+        return {
+            ...local,
+            paymentRequests: merge(local.paymentRequests, remotePaymentSnapshot.paymentRequests),
+            paymentRecords: merge(local.paymentRecords, remotePaymentSnapshot.paymentRecords),
+            receipts: merge(local.receipts, remotePaymentSnapshot.receipts)
+        };
+    }
+
+    function setRemotePaymentSnapshot(snapshot) {
+        const value = snapshot && typeof snapshot === "object" ? snapshot : {};
+        remotePaymentSnapshot = {
+            paymentRequests: Array.isArray(value.paymentRequests) ? value.paymentRequests : [],
+            paymentRecords: Array.isArray(value.paymentRecords) ? value.paymentRecords : [],
+            receipts: Array.isArray(value.receipts) ? value.receipts : []
+        };
+    }
+
+
     /* ========================================================
        SAVE SHARED DATA
     ======================================================== */
@@ -157,9 +185,16 @@
 
         try {
 
+            const safeData = data && typeof data === "object" ? { ...data } : {};
+            ["paymentRequests", "paymentRecords", "receipts"].forEach(key => {
+                const remoteIds = new Set(remotePaymentSnapshot[key].map(item => String(item.id)));
+                safeData[key] = (Array.isArray(safeData[key]) ? safeData[key] : [])
+                    .filter(item => !item?.databaseServicePayment && !remoteIds.has(String(item?.id || "")));
+            });
+
             window.localStorage.setItem(
                 STORAGE_KEY,
-                JSON.stringify(data)
+                JSON.stringify(safeData)
             );
 
             return true;
@@ -326,8 +361,13 @@
         }
 
 
+        if (remotePaymentSnapshot.paymentRequests.some(item => String(item.id) === String(request.id))) {
+            console.warn("LORDBLESS PAYMENT BRIDGE: Supabase payment requests cannot be written to browser storage.");
+            return null;
+        }
+
         const data =
-            load();
+            loadLocal();
 
 
         const existingIndex =
@@ -672,7 +712,7 @@
 
 
         const data =
-            load();
+            loadLocal();
 
 
         const index =
@@ -790,7 +830,7 @@
 
 
         const data =
-            load();
+            loadLocal();
 
 
         const index =
@@ -917,7 +957,7 @@
 
 
         const data =
-            load();
+            loadLocal();
 
 
         const index =
@@ -1032,7 +1072,7 @@
         }
 
 
-        const data = load();
+        const data = loadLocal();
         const duplicate = data.messages.find(item =>
             item &&
             item.clientId === message.clientId &&
@@ -1101,7 +1141,7 @@
             return null;
         }
 
-        const data = load();
+        const data = loadLocal();
         const message = data.messages.find(item =>
             item &&
             item.id === messageId &&
@@ -1137,6 +1177,8 @@
     window.LORDBLESS_PAYMENT_BRIDGE = {
 
         load,
+
+        setRemotePaymentSnapshot,
 
         save,
 

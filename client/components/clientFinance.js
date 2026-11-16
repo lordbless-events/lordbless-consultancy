@@ -74,6 +74,8 @@
 
         receipts: [],
 
+        servicePaymentError: "",
+
         container: null,
 
         historyOpen: false
@@ -644,6 +646,8 @@
 
         return requests
             .filter(request => {
+
+                if (request.databaseServicePayment) return false;
 
                 if (
                     request.purpose === "initial_assessment_consultation"
@@ -1229,9 +1233,14 @@
                     const statusLabel =
                         isAwaitingVerification
                             ? "Awaiting Verification"
+                            : request.verificationStatus === "rejected"
+                                ? "Payment Rejected — replacement details required"
                             : status === "overdue"
                                 ? "Overdue"
                                 : "Payment requested";
+                    const outstandingAmount = request.databaseServicePayment
+                        ? Math.max(0, Number(request.amount || 0) - Number(request.amountPaid || 0))
+                        : Number(request.amount || 0);
 
 
                     return `
@@ -1310,6 +1319,28 @@
                                     </div>
                                 ` : ""}
 
+                                ${request.databaseServicePayment && request.rejectionReason ? `
+                                    <p class="client-settings-message" role="status">Finance note: ${escapeHTML(request.rejectionReason)}</p>
+                                ` : ""}
+
+                                ${request.databaseServicePayment && !isAwaitingVerification && request.status !== "Paid" && request.status !== "Cancelled" ? `
+                                    <form class="lbc-client-service-payment-submit" data-service-payment-form data-request-id="${escapeHTML(request.id)}">
+                                        <label>Amount paid (${escapeHTML(request.currency)})
+                                            <input name="amount" type="number" min="0.01" max="${outstandingAmount.toFixed(2)}" step="0.01" value="${outstandingAmount.toFixed(2)}" required>
+                                        </label>
+                                        <label>Payment method
+                                            <select name="paymentMethod" required>
+                                                <option value="">Select method</option>
+                                                <option>Bank Transfer</option><option>Mobile Money</option><option>Card</option><option>Cash</option><option>Other</option>
+                                            </select>
+                                        </label>
+                                        <label>Payment date<input name="paymentDate" type="date" max="${new Date().toISOString().slice(0, 10)}" required></label>
+                                        <label>Transaction reference<input name="transactionReference" maxlength="200" required></label>
+                                        <button type="submit" class="primary-button">Submit Payment Details</button>
+                                        <p data-service-payment-message role="status" aria-live="polite"></p>
+                                    </form>
+                                ` : ""}
+
                             </div>
 
 
@@ -1318,13 +1349,13 @@
                             >
 
                                 <span>
-                                    ${isInitialAssessment ? "AMOUNT PAYABLE" : "AMOUNT DUE"}
+                                    ${isInitialAssessment ? "AMOUNT PAYABLE" : request.databaseServicePayment ? "AMOUNT REMAINING" : "AMOUNT DUE"}
                                 </span>
 
                                 <strong>
                                     ${escapeHTML(
                                         formatAmount(
-                                            request.amount,
+                                            outstandingAmount,
                                             request.currency
                                         )
                                     )}
@@ -2215,6 +2246,7 @@
 
         state.receipts =
             prepared.receipts;
+        state.servicePaymentError = data?.servicePaymentError || "";
 
 
         const outstandingRequests =
@@ -2225,7 +2257,9 @@
             calculateTotalsByCurrency(
                 outstandingRequests,
                 function (request) {
-                    return request.amount;
+                    return request.databaseServicePayment
+                        ? Math.max(0, Number(request.amount || 0) - Number(request.amountPaid || 0))
+                        : request.amount;
                 }
             );
 
@@ -2269,6 +2303,8 @@
                     </div>
 
                 </div>
+
+                ${state.servicePaymentError ? `<p role="alert" class="lbc-client-finance-payment-error">Service payment information could not be loaded: ${escapeHTML(state.servicePaymentError)}</p>` : ""}
 
 
                 <section
@@ -2454,6 +2490,30 @@
 function bindEvents(
     container
 ) {
+
+    container.querySelectorAll("[data-service-payment-form]").forEach(form => {
+        form.addEventListener("submit", async event => {
+            event.preventDefault();
+            const submit = form.querySelector('[type="submit"]');
+            const message = form.querySelector("[data-service-payment-message]");
+            if (!window.LORDBLESS_CENTRAL_SERVICE_PAYMENTS) {
+                message.textContent = "The secure payment service is unavailable.";
+                return;
+            }
+            submit.disabled = true;
+            message.textContent = "Submitting payment details securely…";
+            try {
+                const payload = Object.fromEntries(new FormData(form).entries());
+                payload.submissionKey = form.dataset.submissionKey || (form.dataset.submissionKey = crypto.randomUUID());
+                await window.LORDBLESS_CENTRAL_SERVICE_PAYMENTS.submitPayment(form.dataset.requestId, payload);
+                message.textContent = "Payment details submitted. Finance will review them before a receipt is issued.";
+                window.dispatchEvent(new CustomEvent("lordbless:service-payment-submitted"));
+            } catch (error) {
+                message.textContent = error?.message || "Payment details could not be submitted.";
+                submit.disabled = false;
+            }
+        });
+    });
 
     const toggle =
         container.querySelector(

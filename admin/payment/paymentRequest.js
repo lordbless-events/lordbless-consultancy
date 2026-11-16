@@ -1247,6 +1247,53 @@
         }
 
 
+        const isPersistentClient =
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(formData.clientId || ""));
+
+        if (!isInitialAssessment && isPersistentClient) {
+            const submitButton = form.querySelector('[type="submit"]');
+            const serviceLabels = selectedServices.map(id => PAYMENT_SERVICES.find(item => item.id === id)?.label || id);
+            if (!window.LORDBLESS_CENTRAL_SERVICE_PAYMENTS) {
+                showFormMessage(form, "The secure service-payment module could not be loaded.", "error");
+                return null;
+            }
+            if (submitButton) submitButton.disabled = true;
+            try {
+                const saved = await window.LORDBLESS_CENTRAL_SERVICE_PAYMENTS.createRequest({
+                    requestKey: form.dataset.centralRequestKey || (form.dataset.centralRequestKey = crypto.randomUUID()),
+                    clientId: formData.clientId,
+                    clientName: formData.clientName,
+                    clientEmail: formData.clientEmail,
+                    clientCode: formData.clientCode,
+                    journeyId: formData.journeyId,
+                    transactionId: formData.transactionId,
+                    transactionTitle: formData.transactionTitle,
+                    destination: formData.destination,
+                    service: serviceLabels.join(" + "),
+                    requestType: formData.requestType || "Service Fee",
+                    title: formData.title || serviceLabels.join(" + "),
+                    description: formData.description || serviceLabels.join(", "),
+                    subtotal: Number(formData.subtotal || formData.amount),
+                    discount: Number(formData.discount || 0),
+                    tax: Number(formData.tax || 0),
+                    amount: Number(formData.amount),
+                    currency: formData.currency || DEFAULT_CURRENCY,
+                    dueDate: formData.dueDate || null,
+                    paymentInstructions: formData.paymentInstructions,
+                    adminNote: formData.adminNote
+                });
+                if (!saved?.id) throw new Error("The payment request response was incomplete.");
+                showFormMessage(form, "Payment request saved securely and is available in the Client Portal.", "success");
+                window.dispatchEvent(new CustomEvent("lordbless:central-service-payment-updated"));
+                setTimeout(() => closeComposer(form.closest(".lordbless-payment-modal")), 800);
+                return saved;
+            } catch (error) {
+                showFormMessage(form, error?.message || "Payment request could not be saved.", "error");
+                if (submitButton) submitButton.disabled = false;
+                return null;
+            }
+        }
+
         const request =
             createFromForm(
                 formData
@@ -2267,30 +2314,6 @@
                                         }
                                     >
                                         GHS
-                                    </option>
-
-                                    <option
-                                        value="GBP"
-                                        ${
-                                            currency ===
-                                            "GBP"
-                                                ? "selected"
-                                                : ""
-                                        }
-                                    >
-                                        GBP
-                                    </option>
-
-                                    <option
-                                        value="CAD"
-                                        ${
-                                            currency ===
-                                            "CAD"
-                                                ? "selected"
-                                                : ""
-                                        }
-                                    >
-                                        CAD
                                     </option>
 
                                 </select>`}

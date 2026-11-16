@@ -4222,6 +4222,10 @@ p {
     display: none !important;
 }
 
+.client-settings-form[hidden] {
+    display: none !important;
+}
+
 .client-settings-form button {
     justify-self: start;
     min-height: 42px;

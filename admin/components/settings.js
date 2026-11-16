@@ -75,6 +75,7 @@
                     <section class="lbc-settings-panel">
                         <div class="lbc-settings-panel-heading"><div><span>ACCOUNT SECURITY</span><p>Change the password for your signed-in administrator account.</p></div></div>
                         <form data-admin-password-form class="lbc-settings-password-form">
+                            <label>Current password<input name="current_password" type="password" autocomplete="current-password" required></label>
                             <label>New password<input name="password" type="password" minlength="8" autocomplete="new-password" required></label>
                             <label>Confirm new password<input name="confirm_password" type="password" minlength="8" autocomplete="new-password" required></label>
                             <label data-admin-reauth-field hidden>Email verification code<input name="nonce" inputmode="numeric" autocomplete="one-time-code"></label>
@@ -134,16 +135,18 @@
         const form = event.currentTarget;
         const message = form.querySelector("[data-password-message]");
         const button = form.querySelector('[type="submit"]');
+        const currentPassword = form.elements.current_password.value;
         const password = form.elements.password.value;
         const confirmation = form.elements.confirm_password.value;
         const nonce = form.elements.nonce.value.trim();
+        if (!currentPassword) { message.textContent = "Enter your current password."; return; }
         if (password.length < 8) { message.textContent = "Use a password with at least 8 characters."; return; }
         if (password !== confirmation) { message.textContent = "The password confirmation does not match."; return; }
 
         button.disabled = true;
         message.textContent = "Updating password securely…";
         try {
-            const attributes = { password };
+            const attributes = { current_password: currentPassword, password };
             if (nonce) attributes.nonce = nonce;
             const { error } = await lordblessSupabase.auth.updateUser(attributes);
             if (error?.code === "reauthentication_needed" && !nonce) {

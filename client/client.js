@@ -574,8 +574,9 @@ function mapAuthenticatedClientJourney(journey) {
     const journeyState = window.LORDBLESS_JOURNEY_STATE;
     const stage = journeyState.normalizeStage(journey.stage);
     const operationalStatus = journeyState.normalizeOperationalStatus(journey.operational_status);
-    const isCompleted = operationalStatus === "completed" || stage === "completed";
-    const statusLabel = journeyState.operationalStatusLabel(operationalStatus);
+    const isCompleted = stage === "completed";
+    const statusMismatch = (stage === "completed") !== (operationalStatus === "completed");
+    const statusLabel = statusMismatch ? "Status needs review" : journeyState.operationalStatusLabel(operationalStatus);
     const serviceLabel = journey.service || journey.journey_type || "Consultancy Service";
     const category = `${journey.journey_type || ""} ${serviceLabel}`.toLowerCase();
     const serviceType = category.includes("career")
@@ -598,6 +599,7 @@ function mapAuthenticatedClientJourney(journey) {
         status: isCompleted ? "completed" : "in_progress",
         stage,
         operationalStatus,
+        statusMismatch,
         statusLabel,
         created: journey.created_at || null,
         updated: journey.updated_at || null,
@@ -644,6 +646,7 @@ async function loadAuthenticatedClientJourneys(clientId) {
     LORDBLESS_CLIENT_ACCOUNT.transactions = journeys;
     LORDBLESS_CLIENT_ACCOUNT.currentTransactionId =
         journeys.find(journey => journey.operationalStatus === "active" && journey.stage !== "completed")?.id ||
+        journeys.find(journey => journey.statusMismatch && journey.stage !== "completed")?.id ||
         journeys[0]?.id ||
         null;
     clientApplicationJourneyId = LORDBLESS_CLIENT_ACCOUNT.currentTransactionId;
@@ -982,7 +985,40 @@ async function loadClientOnboardingData(clientId) {
                 }))
         ];
     }
+
+    if (window.LORDBLESS_CENTRAL_SERVICE_PAYMENTS) {
+        try {
+            const central = await window.LORDBLESS_CENTRAL_SERVICE_PAYMENTS.loadClient();
+            if (clientId !== LORDBLESS_CLIENT_ACCOUNT.id || requestUserId !== clientAuthLookupUserId) return;
+            const local = window.LORDBLESS_PAYMENT_BRIDGE?.load?.() || {};
+            const keepLocal = list => (Array.isArray(list) ? list : []).filter(item => !item?.databaseServicePayment);
+            window.LORDBLESS_PAYMENT_REQUESTS = [
+                ...keepLocal(local.paymentRequests),
+                ...central.requests
+            ];
+            window.LORDBLESS_PAYMENTS = [
+                ...keepLocal(local.paymentRecords),
+                ...central.payments
+            ];
+            window.LORDBLESS_RECEIPTS = [
+                ...keepLocal(local.receipts),
+                ...central.receipts
+            ];
+            window.LORDBLESS_CLIENT_SERVICE_PAYMENT_ERROR = "";
+        } catch (error) {
+            window.LORDBLESS_CLIENT_SERVICE_PAYMENT_ERROR = error?.message || "Service payment information is temporarily unavailable.";
+            console.warn("LORDBLESS CLIENT SERVICE PAYMENTS UNAVAILABLE:", window.LORDBLESS_CLIENT_SERVICE_PAYMENT_ERROR);
+        }
+    }
 }
+
+window.addEventListener("lordbless:service-payment-submitted", async () => {
+    const clientId = LORDBLESS_CLIENT_ACCOUNT?.id;
+    if (!clientId) return;
+    await loadClientOnboardingData(clientId);
+    renderClientFinance();
+    renderDashboard();
+});
 
 
 function getClientOnboardingPaymentState() {
@@ -1499,13 +1535,36 @@ function initialiseClientSettingsForms() {
 
         const lockedNotice = profileForm.querySelector("[data-profile-locked]");
         const saveButton = profileForm.querySelector('[type="submit"]');
+        const editButton = document.querySelector("[data-profile-edit]");
         const isActive = clientAccountAccessStatus === "active";
         if (lockedNotice) lockedNotice.hidden = isActive;
         if (saveButton) saveButton.disabled = !isActive;
+        if (editButton) {
+            editButton.disabled = !isActive;
+            editButton.title = isActive ? "Edit your permitted personal information" : "Profile editing requires active Client Portal access";
+        }
 
         if (profileForm.dataset.initialised !== "true") {
             profileForm.dataset.initialised = "true";
             profileForm.addEventListener("submit", saveClientProfile);
+            editButton?.addEventListener("click", () => {
+                if (clientAccountAccessStatus !== "active") return;
+                profileForm.parentElement.querySelector("[data-profile-feedback]").textContent = "";
+                profileForm.hidden = false;
+                editButton.hidden = true;
+                profileForm.elements.full_name.focus();
+            });
+            profileForm.querySelector("[data-profile-cancel]")?.addEventListener("click", () => {
+                profileForm.reset();
+                profileForm.elements.full_name.value = LORDBLESS_CLIENT_ACCOUNT.fullName || "";
+                profileForm.elements.whatsapp.value = LORDBLESS_CLIENT_ACCOUNT.whatsapp || "";
+                profileForm.elements.nationality.value = LORDBLESS_CLIENT_ACCOUNT.nationality || "";
+                profileForm.elements.current_country.value = LORDBLESS_CLIENT_ACCOUNT.currentCountry || "";
+                profileForm.querySelector("[data-profile-message]").textContent = "";
+                profileForm.parentElement.querySelector("[data-profile-feedback]").textContent = "";
+                profileForm.hidden = true;
+                editButton.hidden = false;
+            });
         }
     }
 
@@ -1529,6 +1588,8 @@ async function saveClientProfile(event) {
         p_nationality: form.elements.nationality.value.trim(),
         p_current_country: form.elements.current_country.value.trim()
     };
+    const editButton = document.querySelector("[data-profile-edit]");
+    const feedback = form.parentElement.querySelector("[data-profile-feedback]");
 
     if (clientAccountAccessStatus !== "active") {
         message.textContent = "Only an active client account can update profile information.";
@@ -1551,7 +1612,9 @@ async function saveClientProfile(event) {
         LORDBLESS_CLIENT_ACCOUNT.nationality = data?.nationality ?? payload.p_nationality;
         LORDBLESS_CLIENT_ACCOUNT.currentCountry = data?.current_country ?? payload.p_current_country;
         populateClientIdentity();
-        message.textContent = "Profile updated.";
+        form.hidden = true;
+        if (editButton) editButton.hidden = false;
+        if (feedback) feedback.textContent = "Profile updated.";
     } catch (error) {
         message.textContent = error?.message || "Profile could not be saved.";
     } finally {
@@ -1566,10 +1629,15 @@ async function changeClientPassword(event) {
     const form = event.currentTarget;
     const message = form.querySelector("[data-password-message]");
     const button = form.querySelector('[type="submit"]');
+    const currentPassword = form.elements.current_password.value;
     const password = form.elements.password.value;
     const confirmation = form.elements.confirm_password.value;
     const nonce = form.elements.nonce.value.trim();
 
+    if (!currentPassword) {
+        message.textContent = "Enter your current password.";
+        return;
+    }
     if (password.length < 8) {
         message.textContent = "Use a password with at least 8 characters.";
         return;
@@ -1582,7 +1650,7 @@ async function changeClientPassword(event) {
     button.disabled = true;
     message.textContent = "Updating password securely…";
     try {
-        const attributes = { password };
+        const attributes = { current_password: currentPassword, password };
         if (nonce) attributes.nonce = nonce;
         const { error } = await lordblessSupabase.auth.updateUser(attributes);
         if (error?.code === "reauthentication_needed" && !nonce) {
@@ -2347,7 +2415,8 @@ payments:
         ? window.LORDBLESS_PAYMENTS
         : [],
 
-        receipts: getClientFinanceReceipts()
+        receipts: getClientFinanceReceipts(),
+        servicePaymentError: window.LORDBLESS_CLIENT_SERVICE_PAYMENT_ERROR || ""
     }
 );
 }
@@ -2386,14 +2455,14 @@ function renderDashboard() {
 
     const active =
         transactions.filter(
-            transaction => transaction.operationalStatus === "active" && transaction.status !== "completed"
+            transaction => transaction.stage !== "completed" && (transaction.operationalStatus === "active" || transaction.statusMismatch)
         );
 
 
     const completed =
         transactions.filter(
             transaction =>
-                transaction.status === "completed" || transaction.status === "cancelled" || transaction.operationalStatus === "completed"
+                transaction.stage === "completed" || transaction.status === "cancelled"
         );
 
 
@@ -2464,10 +2533,12 @@ function renderDashboard() {
     );
 
 
-    const isCompleted = current.operationalStatus === "completed" || current.stage === "completed";
+    const isCompleted = current.stage === "completed";
     const isOnHold = current.operationalStatus === "on_hold" && !isCompleted;
     const journeyState = window.LORDBLESS_JOURNEY_STATE;
-    const currentStatusLabel = isCompleted
+    const currentStatusLabel = current.statusMismatch
+        ? "Status needs review"
+        : isCompleted
         ? journeyState.operationalStatusLabel("completed")
         : journeyState.operationalStatusLabel(current.operationalStatus);
     const heading = document.getElementById("overview-journey-heading");
@@ -2486,6 +2557,8 @@ function renderDashboard() {
 
     const onHoldNotice = document.getElementById("overview-journey-on-hold");
     if (onHoldNotice) onHoldNotice.hidden = !isOnHold;
+    const overviewStatusNotice = document.getElementById("overview-journey-status-review");
+    if (overviewStatusNotice) overviewStatusNotice.hidden = !current.statusMismatch;
 
 }
 
@@ -2620,7 +2693,14 @@ function getPendingActionCount() {
         }
     ).length;
 
-    return outstandingRequests.length + documentOnlyActions;
+    const paymentActionCount = (Array.isArray(window.LORDBLESS_PAYMENT_REQUESTS) ? window.LORDBLESS_PAYMENT_REQUESTS : [])
+        .filter(request => {
+            if (!request || request.clientId !== LORDBLESS_CLIENT_ACCOUNT.id || request.purpose === INITIAL_ASSESSMENT_PURPOSE) return false;
+            const status = String(request.status || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+            return ["requested", "viewed", "partially_paid", "payment_rejected", "rejected"].includes(status);
+        }).length;
+
+    return outstandingRequests.length + documentOnlyActions + paymentActionCount;
 
 }
 
@@ -2734,13 +2814,15 @@ function renderTransactionHistory() {
 function createTransactionCard(transaction) {
     const isCurrent = transaction.id === LORDBLESS_CLIENT_ACCOUNT.currentTransactionId;
     const status = transaction.operationalStatus;
-    const isCompleted = status === "completed" || transaction.stage === "completed";
+    const isCompleted = transaction.stage === "completed";
     const statusClass = transaction.operationalStatus === "on_hold" && !isCompleted
         ? "on-hold"
         : isCompleted ? "completed" : "progress";
     const serviceInitial = getServiceInitial(transaction.services?.[0]);
     const journeyState = window.LORDBLESS_JOURNEY_STATE;
-    const statusLabel = isCompleted
+    const statusLabel = transaction.statusMismatch
+        ? "Status needs review"
+        : isCompleted
         ? journeyState.operationalStatusLabel("completed")
         : journeyState.operationalStatusLabel(status);
 
@@ -2763,6 +2845,7 @@ function createTransactionCard(transaction) {
                 <div class="transaction-progress-summary">
                     ${isCompleted ? "" : `<strong>Current stage: ${escapeHTML(journeyState.stageLabel(transaction.stage))}</strong>`}
                     ${status === "on_hold" && !isCompleted ? "<p>This journey is currently on hold. Your stage is preserved.</p>" : ""}
+                    ${transaction.statusMismatch ? "<p role=\"status\">The recorded stage and operational status do not match. Your team will review this journey status.</p>" : ""}
                     ${renderJourneyStageTimeline(transaction, journeyState)}
                 </div>
                 <div class="transaction-footer">
@@ -2777,7 +2860,7 @@ function createTransactionCard(transaction) {
 function renderJourneyStageTimeline(transaction, journeyState) {
     const stages = journeyState.stages;
     const recordedIndex = stages.findIndex(stage => stage.value === transaction.stage);
-    const completedJourney = transaction.operationalStatus === "completed" || transaction.stage === "completed";
+    const completedJourney = transaction.stage === "completed";
     const currentIndex = Math.max(0, recordedIndex);
     const position = currentIndex + 1;
     const progress = (position / stages.length) * 100;

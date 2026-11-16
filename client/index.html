@@ -613,6 +613,9 @@
                         <p id="overview-journey-on-hold" class="journey-on-hold-notice" hidden>
                             This journey is currently on hold. Your current stage is preserved.
                         </p>
+                        <p id="overview-journey-status-review" class="journey-on-hold-notice" hidden>
+                            The saved journey stage and operational status do not match. Your team will review this record.
+                        </p>
 
 
                         <div class="journey-card-footer">
@@ -1069,18 +1072,23 @@
 
                         <div class="profile-section-title">
                             <p class="portal-eyebrow">MY PROFILE</p>
-                            <h3>Update permitted personal information</h3>
+                            <h3>Personal information</h3>
                             <p>Your registered email and permanent Client ID cannot be changed here.</p>
+                            <button type="button" class="primary-button" data-profile-edit>Edit Profile</button>
+                            <p class="client-settings-message" data-profile-feedback role="status" aria-live="polite"></p>
                         </div>
 
-                        <form id="client-profile-form" class="client-settings-form" novalidate>
+                        <form id="client-profile-form" class="client-settings-form" novalidate hidden>
                             <label>Full name<input name="full_name" type="text" maxlength="160" autocomplete="name" required></label>
                             <label>WhatsApp number<input name="whatsapp" type="tel" maxlength="40" autocomplete="tel" placeholder="Include country code where possible"></label>
                             <label>Nationality<input name="nationality" type="text" maxlength="100" autocomplete="country-name"></label>
                             <label>Country of residence<input name="current_country" type="text" maxlength="100" autocomplete="country-name"></label>
                             <p class="client-settings-message" data-profile-message role="status" aria-live="polite"></p>
                             <p class="client-settings-note" data-profile-locked hidden>Profile changes are available when your Client Portal access is active.</p>
-                            <button type="submit" class="primary-button">Save profile</button>
+                            <div class="client-settings-actions">
+                                <button type="submit" class="primary-button">Update Profile</button>
+                                <button type="button" class="secondary-button" data-profile-cancel>Cancel</button>
+                            </div>
                         </form>
 
                     </section>
@@ -1172,6 +1180,7 @@
                         <p>Choose a new password and enter it again to confirm.</p>
                     </div>
                     <form id="client-password-form" class="client-settings-form" novalidate>
+                        <label>Current password<input name="current_password" type="password" autocomplete="current-password" required></label>
                         <label>New password<input name="password" type="password" minlength="8" autocomplete="new-password" required></label>
                         <label>Confirm new password<input name="confirm_password" type="password" minlength="8" autocomplete="new-password" required></label>
                         <label data-client-reauth-field hidden>Email verification code<input name="nonce" inputmode="numeric" autocomplete="one-time-code"></label>
@@ -1382,6 +1391,8 @@
 <script src="../js/journeyState.js"></script>
 
 <script src="../admin/payment/paymentDataBridge.js"></script>
+
+<script src="../admin/payment/centralServicePayments.js"></script>
 
 <script src="components/documentCentre.js"></script>
 
