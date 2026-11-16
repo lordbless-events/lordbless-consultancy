@@ -2211,19 +2211,26 @@ function renderFinanceView(
             );
             const centralSubmissions = (LORDBLESS_CENTRAL_SERVICE_PAYMENTS_DATA.submissions || [])
                 .filter(item => item.verificationStatus === "pending");
+            const requestsWithPendingSubmission = new Set(
+                centralSubmissions.map(item => item.paymentRequestId).filter(Boolean)
+            );
+            const centralOutstandingRequests = (LORDBLESS_CENTRAL_SERVICE_PAYMENTS_DATA.requests || [])
+                .filter(request =>
+                    !["paid", "cancelled", "canceled"].includes(String(request.status || "").toLowerCase()) &&
+                    !requestsWithPendingSubmission.has(request.id)
+                );
             const requests = [
                 ...localRequests.filter(request =>
                     !(request?.purpose === "initial_assessment_consultation" && databaseClientIds.has(request.clientId))
                 ),
                 ...centralSubmissions,
+                ...centralOutstandingRequests,
                 ...LORDBLESS_ASSESSMENT_FINANCE_REQUESTS
             ].filter(
                         request =>
                             request &&
-                            request.status !==
-                                "cancelled" &&
-                            request.verificationStatus !==
-                                "verified"
+                            !["cancelled", "canceled", "paid"].includes(String(request.status || "").toLowerCase()) &&
+                            String(request.verificationStatus || "").toLowerCase() !== "verified"
                     );
 
 
@@ -2591,6 +2598,33 @@ function renderFinanceView(
                             `
                     }
 
+                    ${LORDBLESS_CENTRAL_SERVICE_PAYMENTS_DATA.receipts.length ? `
+                        <section class="finance-content-card" aria-labelledby="central-service-receipts-heading">
+                            <div class="section-header">
+                                <div>
+                                    <p class="section-eyebrow">CENTRAL SERVICE RECEIPTS</p>
+                                    <h3 id="central-service-receipts-heading">Verified service payments</h3>
+                                    <p class="section-description">Receipts are issued automatically when Finance verifies a payment.</p>
+                                </div>
+                            </div>
+                            <div class="lbc-finance-client-table-wrap">
+                                <table class="lbc-finance-client-table">
+                                    <thead><tr><th>Receipt</th><th>Payment request</th><th>Client</th><th>Amount paid</th><th>Issued</th><th>Action</th></tr></thead>
+                                    <tbody>${LORDBLESS_CENTRAL_SERVICE_PAYMENTS_DATA.receipts.map(receipt => `
+                                        <tr>
+                                            <td>${escapeHTML(receipt.receiptNumber)}</td>
+                                            <td>${escapeHTML(receipt.paymentRequestReference)}</td>
+                                            <td>${escapeHTML(receipt.clientName)}<br><small>${escapeHTML(receipt.clientCode || "ID pending")}</small></td>
+                                            <td>${escapeHTML(receipt.currency)} ${Number(receipt.amount || 0).toFixed(2)}</td>
+                                            <td>${escapeHTML(receipt.issuedAt || "")}</td>
+                                            <td><button type="button" class="button button-secondary" data-central-receipt-view="${escapeHTML(receipt.id)}">View receipt</button></td>
+                                        </tr>
+                                    `).join("")}</tbody>
+                                </table>
+                            </div>
+                        </section>
+                    ` : ""}
+
                     ${assessmentReceipts.length ? `
                         <section class="finance-content-card" aria-labelledby="assessment-receipts-heading">
                             <div class="section-header">
@@ -2715,6 +2749,28 @@ function renderFinanceView(
                         receipt
                     );
                     overlay.querySelector("[data-close-assessment-receipt]").addEventListener("click", () => overlay.remove());
+                    overlay.addEventListener("click", event => {
+                        if (event.target === overlay) overlay.remove();
+                    });
+                });
+            });
+
+            container.querySelectorAll("[data-central-receipt-view]").forEach(button => {
+                button.addEventListener("click", () => {
+                    const receipt = LORDBLESS_CENTRAL_SERVICE_PAYMENTS_DATA.receipts
+                        .find(item => item.id === button.dataset.centralReceiptView);
+                    if (!receipt || !window.LORDBLESS_RECEIPT_GENERATOR?.preview) return;
+
+                    const overlay = document.createElement("div");
+                    overlay.className = "lbc-central-receipt-preview";
+                    overlay.style.cssText = "position:fixed;inset:0;z-index:10000;background:rgba(10,20,35,.72);display:grid;place-items:center;padding:20px;";
+                    overlay.innerHTML = `<div role="dialog" aria-modal="true" aria-label="Official payment receipt" style="background:#fff;max-width:900px;width:100%;max-height:92vh;overflow:auto;padding:24px;border-radius:12px"><button type="button" data-close-central-receipt style="float:right">Close</button><div data-central-receipt-content></div></div>`;
+                    document.body.appendChild(overlay);
+                    window.LORDBLESS_RECEIPT_GENERATOR.preview(
+                        overlay.querySelector("[data-central-receipt-content]"),
+                        receipt
+                    );
+                    overlay.querySelector("[data-close-central-receipt]").addEventListener("click", () => overlay.remove());
                     overlay.addEventListener("click", event => {
                         if (event.target === overlay) overlay.remove();
                     });

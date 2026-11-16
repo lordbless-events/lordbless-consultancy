@@ -62,7 +62,8 @@
             receiptNumber: receipt?.receipt_number || null,
             rejectionReason: latest?.rejection_reason || "",
             latestSubmissionId: pending?.id || latest?.id || null,
-            databaseServicePayment: true
+            databaseServicePayment: true,
+            databaseServicePaymentRequest: true
         };
     }
 
@@ -95,7 +96,8 @@
             clientPaymentSubmittedAt: payment.submitted_at,
             status: payment.status === "submitted" ? "Awaiting Verification" : payment.status,
             verificationStatus: payment.status === "verified" ? "verified" : payment.status === "rejected" ? "rejected" : "pending",
-            databaseServicePayment: true
+            databaseServicePayment: true,
+            databaseServicePaymentSubmission: true
         };
     }
 
@@ -188,15 +190,16 @@
         });
     }
 
-    async function submitPayment(requestId, data) {
+    async function verifyRequest(requestId, data) {
         const input = data || {};
-        return rpc("submit_client_service_payment", {
+        return rpc("verify_client_service_payment_request", {
             p_request_id: requestId,
-            p_submission_key: input.submissionKey || crypto.randomUUID(),
-            p_amount: Number(input.amount),
+            p_verification_key: input.verificationKey || crypto.randomUUID(),
+            p_amount_received: Number(input.amountReceived),
             p_payment_method: input.paymentMethod,
-            p_transaction_reference: input.transactionReference,
-            p_payment_date: input.paymentDate
+            p_payment_reference: input.paymentReference || "",
+            p_payment_date: input.paymentDate,
+            p_finance_note: input.financeNote || ""
         });
     }
 
@@ -239,6 +242,6 @@
     }
 
     window.LORDBLESS_CENTRAL_SERVICE_PAYMENTS = Object.freeze({
-        normalize, loadAdmin, loadClient, createRequest, submitPayment, verify, cancel, updateRequest
+        normalize, loadAdmin, loadClient, createRequest, verifyRequest, verify, cancel, updateRequest
     });
 })();

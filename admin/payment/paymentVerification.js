@@ -17,7 +17,8 @@
         paymentDate: "",
         transactionReference: "",
         financeNote: "",
-        verifiedBy: ""
+        verifiedBy: "",
+        verificationKey: ""
     };
 
 
@@ -111,11 +112,15 @@
             verificationState.paymentRequest;
 
 
-        return Number(
+        const requested = Number(
             request?.total ??
             request?.amount ??
             0
         );
+
+        return request?.databaseServicePaymentRequest
+            ? Math.max(0, requested - Number(request?.amountPaid || 0))
+            : requested;
 
     }
 
@@ -226,7 +231,9 @@
     }
 
     const requestedAmount =
-        paymentRequest?.total ??
+        paymentRequest?.databaseServicePaymentRequest
+            ? Math.max(0, Number(paymentRequest?.amount || paymentRequest?.total || 0) - Number(paymentRequest?.amountPaid || 0))
+            : paymentRequest?.total ??
         paymentRequest?.amount ??
         "";
 
@@ -255,11 +262,17 @@
             transactionReference:
                 "",
 
+            paymentMethod:
+                "",
+
             financeNote:
                 "",
 
             verifiedBy:
                 "",
+
+            verificationKey:
+                paymentRequest?.databaseServicePaymentRequest ? crypto.randomUUID() : "",
 
             onComplete:
                 typeof options?.onClose === "function" ? options.onClose : null
@@ -415,7 +428,7 @@
 
                             <select
                                 data-field="currency"
-                                ${verificationState.paymentRequest?.databaseAssessment ? "disabled" : ""}
+                                ${verificationState.paymentRequest?.databaseAssessment || verificationState.paymentRequest?.databaseServicePaymentRequest ? "disabled" : ""}
                             >
 
                                 <option
@@ -514,6 +527,17 @@
                     </div>
 
 
+                    ${verificationState.paymentRequest?.databaseServicePaymentRequest ? `
+                        <div>
+                            <label>PAYMENT METHOD</label>
+                            <select data-field="paymentMethod" required>
+                                <option value="">Select method</option>
+                                ${["Bank Transfer","Mobile Money","Card","Cash","Other"].map(method => `<option value="${method}" ${verificationState.paymentMethod === method ? "selected" : ""}>${method}</option>`).join("")}
+                            </select>
+                        </div>
+                    ` : ""}
+
+
                     <div>
 
                         <label>
@@ -573,13 +597,13 @@
                     class="lbc-verification-actions"
                 >
 
-                    <button
+                    ${verificationState.paymentRequest?.databaseServicePaymentRequest ? "" : `<button
                         type="button"
                         class="lbc-btn lbc-btn-secondary"
                         data-action="reject"
                     >
                         REJECT PAYMENT
-                    </button>
+                    </button>`}
 
 
                     <button
@@ -691,6 +715,10 @@
         verificationState[field] =
             event.target.value;
 
+        if (verificationState.paymentRequest?.databaseServicePaymentRequest) {
+            verificationState.verificationKey = crypto.randomUUID();
+        }
+
     }
 
 
@@ -726,6 +754,10 @@
                 "Enter the payment date."
             );
 
+        }
+
+        if (verificationState.paymentRequest?.databaseServicePaymentRequest && !verificationState.paymentMethod) {
+            return "Select the payment method Finance confirmed.";
         }
 
 
@@ -959,6 +991,32 @@
 
         const originalRequest =
             verificationState.paymentRequest;
+
+        if (originalRequest?.databaseServicePaymentRequest) {
+            const confirmButton = document.querySelector(".lbc-payment-verification [data-action='confirm']");
+            if (confirmButton) confirmButton.disabled = true;
+            try {
+                const result = await window.LORDBLESS_CENTRAL_SERVICE_PAYMENTS.verifyRequest(
+                    originalRequest.id,
+                    {
+                        verificationKey: verificationState.verificationKey,
+                        amountReceived: receivedAmount,
+                        paymentMethod: verificationState.paymentMethod,
+                        paymentReference: verificationState.transactionReference.trim(),
+                        paymentDate: verificationState.paymentDate,
+                        financeNote: verification.financeNote
+                    }
+                );
+                const receipt = result?.receipt;
+                showMessage(`Payment verified and saved. ${receipt?.receipt_number ? `Official receipt ${receipt.receipt_number} was issued.` : ""}`);
+                window.dispatchEvent(new CustomEvent("lordbless:central-service-payment-updated"));
+                if (typeof verificationState.onComplete === "function") verificationState.onComplete();
+            } catch (error) {
+                showMessage(error?.message || "Payment verification could not be saved.", true);
+                if (confirmButton) confirmButton.disabled = false;
+            }
+            return;
+        }
 
         if (originalRequest?.databaseServicePayment) {
             const confirmButton = document.querySelector(".lbc-payment-verification [data-action='confirm']");
