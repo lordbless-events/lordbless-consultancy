@@ -327,6 +327,11 @@
                 request.clientId ||
                 null,
 
+            clientCode:
+                request.clientCode ||
+                request.client_code ||
+                null,
+
             clientName:
                 request.clientName ||
                 null,
@@ -1233,6 +1238,16 @@
             receipt.status ===
             RECEIPT_STATUS.VOID;
 
+        const paymentRequest = getPaymentRequest(
+            receipt.paymentRequestId || receipt.payment_request_id
+        );
+        const clientCode =
+            receipt.clientCode ||
+            receipt.client_code ||
+            paymentRequest?.clientCode ||
+            paymentRequest?.client_code ||
+            "";
+
         const logoPath =
             "../images/service-images/lordbless-header-logo.png";
 
@@ -1370,6 +1385,7 @@
                             <span>Client ID</span>
                             <strong>
                                 ${escapeHTML(
+                                    clientCode ||
                                     receipt.clientId ||
                                     "—"
                                 )}

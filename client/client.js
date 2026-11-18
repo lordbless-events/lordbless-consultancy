@@ -269,6 +269,7 @@ let clientPendingPaymentRequestFocus = false;
 let clientConsultationMeeting = null;
 let clientConsultationNotifications = [];
 let clientOnboardingDataError = "";
+let clientDocumentRequestRefreshTimer = null;
 
 /* ============================================================
    SHARED PORTAL MOCK DATA
@@ -654,6 +655,84 @@ async function loadAuthenticatedClientJourneys(clientId) {
 }
 
 
+function mapAuthenticatedClientDocumentRequest(item) {
+    return {
+        ...item,
+        clientId: item.client_id,
+        enquiryId: item.enquiry_id,
+        requirementId: item.requirement_id || null,
+        documentType: item.document_type,
+        documentName: item.document_name,
+        name: item.document_name,
+        title: item.document_name,
+        type: item.request_type,
+        createdAt: item.created_at,
+        sentAt: item.sent_at,
+        viewedAt: item.viewed_at,
+        completedAt: item.completed_at,
+        databaseRequest: true
+    };
+}
+
+function mapAuthenticatedClientDocument(item) {
+    return {
+        ...item,
+        id: item.id,
+        name: item.name || item.document_name || item.title || item.file_name || "Client document",
+        filename: item.filename || item.file_name || "",
+        type: item.type || item.document_type || "other",
+        status: item.status || item.review_status || "reviewing",
+        uploadedAt: item.uploadedAt || item.uploaded_at || "",
+        expiryDate: item.expiryDate || item.valid_until || item.expiry_date || item.expires_at || "",
+        issueDate: item.issueDate || item.valid_from || item.issue_date || null,
+        approvedAt: item.approved_at || null,
+        rejectedAt: item.rejected_at || null,
+        rejectionReason: item.rejection_reason || "",
+        version: item.version || 1,
+        isCurrent: item.is_current !== false,
+        isReusable: item.is_reusable === true,
+        storagePath: item.storage_path || "",
+        documentRequestId: item.document_request_id || null
+    };
+}
+
+async function refreshAuthenticatedClientDocumentRequests() {
+    const clientId = LORDBLESS_CLIENT_ACCOUNT.id;
+    const requestUserId = clientAuthLookupUserId;
+    if (!clientId || !requestUserId || requestUserId !== clientAuthResolvedUserId || document.hidden) return;
+
+    try {
+        const { data, error } = await lordblessSupabase
+            .from("document_requests")
+            .select("*")
+            .eq("client_id", clientId)
+            .eq("portal", true)
+            .order("created_at", { ascending: false });
+        if (error) throw error;
+        if (clientId !== LORDBLESS_CLIENT_ACCOUNT.id || requestUserId !== clientAuthLookupUserId) return;
+
+        const nextRequests = (data || [])
+            .filter(item => item.client_id === clientId)
+            .map(mapAuthenticatedClientDocumentRequest);
+        const getRequestState = requests => JSON.stringify(requests.map(item => [item.id, item.status, item.message, item.updated_at]));
+        const requestStateChanged = getRequestState(LORDBLESS_CLIENT_ACCOUNT.documentRequests || []) !== getRequestState(nextRequests);
+        LORDBLESS_CLIENT_ACCOUNT.documentRequests = nextRequests;
+        if (requestStateChanged) {
+            const rows = await window.LORDBLESS_DATA.getClientDocuments(clientId);
+            if (clientId !== LORDBLESS_CLIENT_ACCOUNT.id || requestUserId !== clientAuthLookupUserId) return;
+            LORDBLESS_CLIENT_ACCOUNT.documents = (Array.isArray(rows) ? rows : [])
+                .filter(item => item?.client_id === clientId)
+                .map(mapAuthenticatedClientDocument);
+        }
+        updateClientMessageBadge();
+        if (requestStateChanged && document.getElementById("view-messages")?.classList.contains("active")) renderClientMessages();
+        if (requestStateChanged && document.getElementById("view-documents")?.classList.contains("active")) renderDocuments();
+        if (requestStateChanged && document.getElementById("view-overview")?.classList.contains("active")) renderDashboard();
+    } catch (error) {
+        console.warn("LORDBLESS CLIENT DOCUMENT REQUEST REFRESH ERROR:", error?.message || error);
+    }
+}
+
 async function loadAuthenticatedClientDocuments(clientId) {
     LORDBLESS_CLIENT_ACCOUNT.documents = [];
     LORDBLESS_CLIENT_ACCOUNT.documentRequests = [];
@@ -673,7 +752,7 @@ async function loadAuthenticatedClientDocuments(clientId) {
     try {
         const [rows, requestResult] = await Promise.all([
             window.LORDBLESS_DATA.getClientDocuments(clientId),
-            lordblessSupabase.from("document_requests").select("*").eq("client_id", clientId).order("created_at", { ascending: false })
+            lordblessSupabase.from("document_requests").select("*").eq("client_id", clientId).eq("portal", true).order("created_at", { ascending: false })
         ]);
         if (requestResult.error) throw requestResult.error;
         if (
@@ -683,43 +762,10 @@ async function loadAuthenticatedClientDocuments(clientId) {
 
         LORDBLESS_CLIENT_ACCOUNT.documents = (Array.isArray(rows) ? rows : [])
             .filter(item => item?.client_id === clientId)
-            .map(item => ({
-                ...item,
-                id: item.id,
-                name: item.name || item.document_name || item.title || item.file_name || "Client document",
-                filename: item.filename || item.file_name || "",
-                type: item.type || item.document_type || "other",
-                status: item.status || item.review_status || "reviewing",
-                uploadedAt: item.uploadedAt || item.uploaded_at || "",
-                expiryDate: item.expiryDate || item.valid_until || item.expiry_date || item.expires_at || "",
-                issueDate: item.issueDate || item.valid_from || item.issue_date || null,
-                approvedAt: item.approved_at || null,
-                rejectedAt: item.rejected_at || null,
-                rejectionReason: item.rejection_reason || "",
-                version: item.version || 1,
-                isCurrent: item.is_current !== false,
-                isReusable: item.is_reusable === true,
-                storagePath: item.storage_path || "",
-                documentRequestId: item.document_request_id || null
-            }));
+            .map(mapAuthenticatedClientDocument);
         LORDBLESS_CLIENT_ACCOUNT.documentRequests = (requestResult.data || [])
             .filter(item => item.client_id === clientId)
-            .map(item => ({
-                ...item,
-                clientId: item.client_id,
-                enquiryId: item.enquiry_id,
-                requirementId: item.requirement_id || null,
-                documentType: item.document_type,
-                documentName: item.document_name,
-                name: item.document_name,
-                title: item.document_name,
-                type: item.request_type,
-                createdAt: item.created_at,
-                sentAt: item.sent_at,
-                viewedAt: item.viewed_at,
-                completedAt: item.completed_at,
-                databaseRequest: true
-            }));
+            .map(mapAuthenticatedClientDocumentRequest);
     } catch (error) {
         clientDocumentLoadError = error?.message || String(error);
         console.error("LORDBLESS CLIENT DOCUMENT LOAD ERROR:", error);
@@ -1988,19 +2034,46 @@ function getClientMessages() {
                 String(item.enquiryId || item.enquiry_id || "") === String(request.enquiryId || request.enquiry_id || "")
             );
             const requestStatus = String(request.status || "requested").toLowerCase();
+            const requestId = String(request.id);
+            const relatedDocuments = (LORDBLESS_CLIENT_ACCOUNT.documents || [])
+                .filter(item => String(item.documentRequestId || item.document_request_id || "") === requestId)
+                .sort((left, right) => new Date(right.uploadedAt || right.uploaded_at || 0) - new Date(left.uploadedAt || left.uploaded_at || 0));
+            const latestDocument = relatedDocuments[0];
+            const documentStatus = String(latestDocument?.status || "").toLowerCase();
+            const notificationTitle = documentStatus === "approved"
+                ? "Document Approved"
+                : documentStatus === "rejected"
+                    ? "Replacement Required"
+                    : requestStatus === "uploaded" || documentStatus === "reviewing"
+                        ? "Document Received"
+                        : "Document Required";
+            const notificationMessage = documentStatus === "approved"
+                ? `Your ${request.documentName || request.document_name || "document"} has been approved.`
+                : documentStatus === "rejected"
+                    ? latestDocument?.rejectionReason || latestDocument?.rejection_reason || `Your ${request.documentName || request.document_name || "document"} was rejected. Please upload a replacement.`
+                    : requestStatus === "uploaded" || documentStatus === "reviewing"
+                        ? `Your ${request.documentName || request.document_name || "document"} was received and is under review.`
+                        : request.message || `Please submit ${request.documentName || request.document_name || "the requested document"}.`;
             return {
-                id: `NOTIF-DOCUMENT-REQUEST-${request.id}`,
+                id: `NOTIF-DOCUMENT-REQUEST-${requestId}`,
                 clientId,
                 type: "document_request",
-                title: "New Document Required",
-                message: request.message || `Please submit ${request.documentName || request.document_name || "the requested document"}.`,
-                createdAt: request.createdAt || request.created_at || request.sentAt || request.sent_at,
-                read: requestStatus !== "requested",
+                title: notificationTitle,
+                message: notificationMessage,
+                createdAt: documentStatus === "approved"
+                    ? latestDocument?.approvedAt || latestDocument?.approved_at || request.createdAt || request.created_at || request.sentAt || request.sent_at
+                    : documentStatus === "rejected"
+                        ? latestDocument?.rejectedAt || latestDocument?.rejected_at || request.createdAt || request.created_at || request.sentAt || request.sent_at
+                        : documentStatus === "reviewing"
+                            ? latestDocument?.uploadedAt || latestDocument?.uploaded_at || request.createdAt || request.created_at || request.sentAt || request.sent_at
+                            : request.createdAt || request.created_at || request.sentAt || request.sent_at,
+                read: documentStatus === "approved" || requestStatus !== "requested",
                 documentRequestNotification: true,
-                documentRequestId: String(request.id),
+                documentRequestId: requestId,
                 documentName: request.documentName || request.document_name || "Requested document",
                 journeyTitle: journey?.title || journey?.destination || "",
-                requestStatus
+                requestStatus,
+                documentStatus
             };
         });
 
@@ -2223,6 +2296,13 @@ function initialiseClientMessages() {
     const container = document.getElementById("messages-container");
 
     updateClientMessageBadge();
+
+    if (clientDocumentRequestRefreshTimer === null) {
+        clientDocumentRequestRefreshTimer = window.setInterval(
+            refreshAuthenticatedClientDocumentRequests,
+            60000
+        );
+    }
 
     if (container && container.dataset.alertsBound !== "true") {
         container.dataset.alertsBound = "true";

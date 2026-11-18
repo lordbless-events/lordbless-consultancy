@@ -5104,7 +5104,8 @@ async function renderAdminDocuments() {
 
         const requested =
             data.requests.filter(
-                request => request.status === "requested"
+                request => request.portal !== false && request.portal !== 0 &&
+                    ["requested", "viewed", "rejected"].includes(String(request.status || "").toLowerCase())
             );
 
         const approved =
@@ -8700,6 +8701,7 @@ function renderAdminJourneyPanel(clientId) {
     }
 
     const journeyIds = journeys.map(journey => journey.id);
+    const journeyById = new Map(journeys.map(journey => [journey.id, journey]));
     if (journeyIds.length) {
         lordblessSupabase.from("client_journey_stage_history")
             .select("id,journey_id,previous_stage,new_stage,previous_operational_status,new_operational_status,internal_note,changed_by_name,created_at")
@@ -8707,6 +8709,7 @@ function renderAdminJourneyPanel(clientId) {
             .order("created_at", { ascending: false })
             .then(({ data, error }) => {
                 for (const journeyId of journeyIds) {
+                    const journeyRecord = journeyById.get(journeyId) || {};
                     const target = panel.querySelector(`[data-journey-history="${CSS.escape(journeyId)}"]`);
                     if (!target || !target.isConnected) continue;
                     if (error) {
@@ -8716,8 +8719,8 @@ function renderAdminJourneyPanel(clientId) {
                     const entries = (data || []).filter(item => item.journey_id === journeyId);
                     target.innerHTML = entries.length
                         ? `<h5>Journey history</h5>${entries.map(item => `
-                            <p><strong>${escapeHTML(journeyState.stageLabelForJourney(item.new_stage, isAutosJourneyPanel ? { service: "LORDBLESS AUTOS" } : journey))}</strong>
-                            ${item.previous_stage ? ` · from ${escapeHTML(journeyState.stageLabelForJourney(item.previous_stage, isAutosJourneyPanel ? { service: "LORDBLESS AUTOS" } : journey))}` : " · journey assigned"}
+                            <p><strong>${escapeHTML(journeyState.stageLabelForJourney(item.new_stage, isAutosJourneyPanel ? { ...journeyRecord, service: "LORDBLESS AUTOS" } : journeyRecord))}</strong>
+                            ${item.previous_stage ? ` · from ${escapeHTML(journeyState.stageLabelForJourney(item.previous_stage, isAutosJourneyPanel ? { ...journeyRecord, service: "LORDBLESS AUTOS" } : journeyRecord))}` : " · journey assigned"}
                             ${item.previous_operational_status ? ` · ${escapeHTML(journeyState.operationalStatusLabel(item.previous_operational_status))} → ${escapeHTML(journeyState.operationalStatusLabel(item.new_operational_status))}` : ` · ${escapeHTML(journeyState.operationalStatusLabel(item.new_operational_status))}`}
                             · ${escapeHTML(formatDate(item.created_at))}
                             · ${escapeHTML(item.changed_by_name || "Staff")}</p>

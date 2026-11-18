@@ -643,6 +643,7 @@ p {
 .client-message-card-heading {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 10px;
     margin-bottom: 7px;
 }
@@ -653,14 +654,17 @@ p {
 }
 
 .client-message-card h3 {
+    min-width: 0;
     color: var(--text-900);
     font-family: Georgia, "Times New Roman", serif;
     font-size: 18px;
+    overflow-wrap: anywhere;
 }
 
 .client-message-card p {
     color: var(--text-600);
     font-size: 13px;
+    overflow-wrap: anywhere;
 }
 
 .client-message-card time {
@@ -727,6 +731,15 @@ p {
         align-items: flex-start;
         flex-direction: column;
         padding: 18px;
+    }
+
+    .client-message-card-content {
+        width: 100%;
+    }
+
+    .client-message-appointment a {
+        max-width: 100%;
+        overflow-wrap: anywhere;
     }
 }
 
@@ -6148,6 +6161,15 @@ input:focus-visible {
     .document-request-title-row {
         flex-direction: column;
         gap: 7px;
+    }
+
+    .document-request-title-block,
+    .document-request-title-block strong,
+    .document-request-description,
+    .document-request-label {
+        min-width: 0;
+        max-width: 100%;
+        overflow-wrap: anywhere;
     }
 
 

@@ -4979,6 +4979,23 @@ body {
     .lbc-document-header h2 {
         font-size: 22px;
     }
+
+    .lbc-document-request-header {
+        flex-wrap: wrap;
+    }
+
+    .lbc-document-request-title,
+    .lbc-document-request-client,
+    .lbc-document-request-message,
+    .lbc-document-request-meta-value {
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
+
+    .lbc-document-request-meta-row {
+        flex-direction: column;
+        gap: 4px;
+    }
 }
 /* =========================================================
    LORDBLESS DOCUMENT REQUEST COMPOSER

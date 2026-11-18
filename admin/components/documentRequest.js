@@ -772,7 +772,15 @@ async function sendDocumentRequest() {
                 databaseRequest: true
             };
             dispatchDocumentRequestEvent(persistedRequest);
-            showDocumentRequestMessage("Document request saved and sent to the Client Portal.");
+            const externalChannels = [email && "email", whatsapp && "WhatsApp"].filter(Boolean);
+            const deliveryMessage = portal
+                ? "Document request saved and made available in the Client Portal."
+                : "Document request saved. Client Portal delivery was not selected.";
+            showDocumentRequestMessage(
+                deliveryMessage + (externalChannels.length
+                    ? ` ${externalChannels.join(" and ")} delivery is not connected; no external message was sent.`
+                    : "")
+            );
             closeDocumentRequest();
         } catch (error) {
             showDocumentRequestMessage(error?.message || "Unable to save the document request.");
@@ -914,8 +922,14 @@ if (
 
 }
 
+    const externalChannels = [email && "email", whatsapp && "WhatsApp"].filter(Boolean);
     showDocumentRequestMessage(
-        "Document request prepared successfully."
+        (portal
+            ? "Document request prepared for the Client Portal."
+            : "Document request prepared without Client Portal delivery.") +
+        (externalChannels.length
+            ? ` ${externalChannels.join(" and ")} delivery is not connected; no external message was sent.`
+            : "")
     );
 
 
