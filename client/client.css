@@ -4249,9 +4249,58 @@ p {
     margin-top: 18px;
 }
 
+.client-settings-security-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    cursor: pointer;
+    list-style: none;
+}
+
+.client-settings-security-summary::-webkit-details-marker {
+    display: none;
+}
+
+.client-settings-security-summary > span:first-child {
+    display: grid;
+    gap: 5px;
+}
+
+.client-settings-security-summary strong {
+    color: var(--text-900);
+    font-family: Georgia, serif;
+    font-size: 20px;
+}
+
+.client-settings-security-summary:focus-visible {
+    outline: 2px solid var(--champagne-300);
+    outline-offset: 4px;
+}
+
+.client-settings-security-hint,
+.client-settings-password-content > p {
+    color: var(--text-500);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.client-settings-password-content {
+    margin-top: 20px;
+}
+
+.client-settings-password-content > p {
+    margin: 0 0 16px;
+}
+
 @media (max-width: 680px) {
     .client-settings-form {
         grid-template-columns: minmax(0, 1fr);
+    }
+
+    .client-settings-security-summary {
+        align-items: flex-start;
+        flex-direction: column;
     }
 }
 

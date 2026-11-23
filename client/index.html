@@ -233,8 +233,7 @@
 
             <div class="sidebar-client-mini">
 
-                <div class="client-avatar">
-                    KM
+                <div class="client-avatar" data-client-initials aria-hidden="true">
                 </div>
 
                 <div class="client-mini-info">
@@ -325,8 +324,7 @@
 
                 <div class="topbar-client">
 
-                    <div class="topbar-avatar">
-                        KM
+                    <div class="topbar-avatar" data-client-initials aria-hidden="true">
                     </div>
 
                     <div>
@@ -982,8 +980,7 @@
 
                         <div class="profile-card-heading">
 
-                            <div class="profile-large-avatar">
-                                KM
+                            <div class="profile-large-avatar" data-client-initials aria-hidden="true">
                             </div>
 
                             <div>
@@ -1173,21 +1170,26 @@
 
                 </div>
 
-                <section class="profile-card client-settings-password-card">
-                    <div class="profile-section-title">
-                        <p class="portal-eyebrow">ACCOUNT SECURITY</p>
-                        <h3>Change Password</h3>
+                <details class="profile-card client-settings-password-card">
+                    <summary class="client-settings-security-summary">
+                        <span>
+                            <span class="portal-eyebrow">ACCOUNT SECURITY</span>
+                            <strong>Change Password</strong>
+                        </span>
+                        <span class="client-settings-security-hint">Expand to manage your password</span>
+                    </summary>
+                    <div class="client-settings-password-content">
                         <p>Choose a new password and enter it again to confirm.</p>
+                        <form id="client-password-form" class="client-settings-form" novalidate>
+                            <label>Current password<input name="current_password" type="password" autocomplete="current-password" required></label>
+                            <label>New password<input name="password" type="password" minlength="8" autocomplete="new-password" required></label>
+                            <label>Confirm new password<input name="confirm_password" type="password" minlength="8" autocomplete="new-password" required></label>
+                            <label data-client-reauth-field hidden>Email verification code<input name="nonce" inputmode="numeric" autocomplete="one-time-code"></label>
+                            <p class="client-settings-message" data-password-message role="status" aria-live="polite"></p>
+                            <button type="submit" class="primary-button">Update password</button>
+                        </form>
                     </div>
-                    <form id="client-password-form" class="client-settings-form" novalidate>
-                        <label>Current password<input name="current_password" type="password" autocomplete="current-password" required></label>
-                        <label>New password<input name="password" type="password" minlength="8" autocomplete="new-password" required></label>
-                        <label>Confirm new password<input name="confirm_password" type="password" minlength="8" autocomplete="new-password" required></label>
-                        <label data-client-reauth-field hidden>Email verification code<input name="nonce" inputmode="numeric" autocomplete="one-time-code"></label>
-                        <p class="client-settings-message" data-password-message role="status" aria-live="polite"></p>
-                        <button type="submit" class="primary-button">Update password</button>
-                    </form>
-                </section>
+                </details>
 
             </section>
 

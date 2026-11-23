@@ -733,6 +733,82 @@ async function refreshAuthenticatedClientDocumentRequests() {
     }
 }
 
+async function refreshAuthenticatedClientNotifications() {
+    const clientId = LORDBLESS_CLIENT_ACCOUNT.id;
+    const requestUserId = clientAuthLookupUserId;
+    if (!clientId || !requestUserId || requestUserId !== clientAuthResolvedUserId || document.hidden) return;
+
+    try {
+        const [consultationResult, appointmentResult] = await Promise.all([
+            lordblessSupabase
+                .from("client_consultation_notifications")
+                .select("id, client_id, meeting_id, revision, event_type, title, message, created_at, read_at")
+                .eq("client_id", clientId)
+                .order("created_at", { ascending: false }),
+            lordblessSupabase
+                .from("client_appointment_notifications")
+                .select("id, client_id, appointment_id, event_type, title, message, created_at, read_at")
+                .eq("client_id", clientId)
+                .order("created_at", { ascending: false })
+        ]);
+        if (consultationResult.error) throw consultationResult.error;
+        if (appointmentResult.error) throw appointmentResult.error;
+
+        const appointmentNotifications = (appointmentResult.data || [])
+            .filter(item => item.client_id === clientId);
+        const appointmentIds = [...new Set(appointmentNotifications.map(item => item.appointment_id).filter(Boolean))];
+        let appointments = [];
+        if (appointmentIds.length) {
+            const appointmentsResult = await lordblessSupabase
+                .from("client_appointments")
+                .select("id, title, starts_at, timezone, duration_minutes, channel, location, meeting_link, instructions, status")
+                .eq("client_id", clientId)
+                .in("id", appointmentIds);
+            if (appointmentsResult.error) throw appointmentsResult.error;
+            appointments = appointmentsResult.data || [];
+        }
+        if (clientId !== LORDBLESS_CLIENT_ACCOUNT.id || requestUserId !== clientAuthLookupUserId) return;
+
+        const appointmentsById = new Map(appointments.map(appointment => [String(appointment.id), appointment]));
+        const nextNotifications = [
+            ...(consultationResult.data || [])
+                .filter(item => item.client_id === clientId)
+                .map(item => ({
+                    id: item.id,
+                    clientId: item.client_id,
+                    title: item.title,
+                    message: item.message,
+                    type: `consultation_${item.event_type}`,
+                    createdAt: item.created_at,
+                    read: Boolean(item.read_at),
+                    databaseNotification: true
+                })),
+            ...appointmentNotifications.map(item => ({
+                id: item.id,
+                clientId: item.client_id,
+                title: item.title,
+                message: item.message,
+                type: `appointment_${item.event_type}`,
+                createdAt: item.created_at,
+                read: Boolean(item.read_at),
+                databaseNotification: true,
+                appointmentNotification: true,
+                appointment: appointmentsById.get(String(item.appointment_id)) || null,
+                appointmentEvent: item.event_type
+            }))
+        ];
+        const previousState = JSON.stringify(clientConsultationNotifications.map(item => [item.id, item.read, item.title, item.message]));
+        const nextState = JSON.stringify(nextNotifications.map(item => [item.id, item.read, item.title, item.message]));
+        clientConsultationNotifications = nextNotifications;
+        updateClientMessageBadge();
+        if (previousState !== nextState && document.getElementById("view-messages")?.classList.contains("active")) {
+            renderClientMessages();
+        }
+    } catch (error) {
+        console.warn("LORDBLESS CLIENT NOTIFICATION REFRESH ERROR:", error?.message || error);
+    }
+}
+
 async function loadAuthenticatedClientDocuments(clientId) {
     LORDBLESS_CLIENT_ACCOUNT.documents = [];
     LORDBLESS_CLIENT_ACCOUNT.documentRequests = [];
@@ -1334,6 +1410,7 @@ async function handleClientPortalSession(session) {
             LORDBLESS_CLIENT_ACCOUNT.documents = [];
         }
         clientAuthResolvedUserId = session.user.id;
+        updateClientMessageBadge();
 
         const clientApp =
             document.getElementById("client-portal-app");
@@ -1451,6 +1528,11 @@ function populateClientIdentity() {
         formatClientName(
             LORDBLESS_CLIENT_ACCOUNT.fullName
         );
+    const initials = getClientNameInitials(formattedName);
+
+    document.querySelectorAll("[data-client-initials]").forEach(element => {
+        element.textContent = initials;
+    });
 
     const displayClientId = getClientDisplayId();
 
@@ -2100,13 +2182,15 @@ function updateClientMessageBadge() {
         return;
     }
 
-    const unreadCount = getClientMessages()
-        .filter(message => message.read !== true)
-        .length;
+    const unreadCount = getClientUnreadMessages().length;
 
     badge.textContent = String(unreadCount);
     badge.hidden = unreadCount === 0;
 
+}
+
+function getClientUnreadMessages() {
+    return getClientMessages().filter(message => message.read !== true);
 }
 
 
@@ -2117,7 +2201,7 @@ function renderClientMessages() {
 
     updateClientMessageBadge();
     const messages = getClientMessages();
-    const newMessages = messages.filter(message => message.read !== true);
+    const newMessages = getClientUnreadMessages();
     const previouslyRead = messages.filter(message => message.read === true);
 
     container.innerHTML = `
@@ -2299,13 +2383,22 @@ function initialiseClientMessages() {
 
     if (clientDocumentRequestRefreshTimer === null) {
         clientDocumentRequestRefreshTimer = window.setInterval(
-            refreshAuthenticatedClientDocumentRequests,
+            () => {
+                void refreshAuthenticatedClientDocumentRequests();
+                void refreshAuthenticatedClientNotifications();
+            },
             60000
         );
     }
 
     if (container && container.dataset.alertsBound !== "true") {
         container.dataset.alertsBound = "true";
+
+        document.addEventListener("visibilitychange", () => {
+            if (document.hidden) return;
+            void refreshAuthenticatedClientDocumentRequests();
+            void refreshAuthenticatedClientNotifications();
+        });
 
         container.addEventListener("click", event => {
             const card = event.target.closest("[data-message-id]");
@@ -4738,6 +4831,13 @@ function formatClientName(
                 letter.toUpperCase()
         );
 
+}
+
+function getClientNameInitials(name) {
+    const words = String(name || "").trim().split(/\s+/).filter(Boolean);
+    if (!words.length) return "";
+    if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+    return `${words[0].charAt(0)}${words[words.length - 1].charAt(0)}`.toUpperCase();
 }
 
 
