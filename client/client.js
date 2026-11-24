@@ -2035,6 +2035,7 @@ function showView(
     ) {
 
         renderDocuments();
+        void markVisibleClientDocumentRequestsAsViewed();
 
     }
 
@@ -3296,8 +3297,6 @@ function renderDocuments() {
                 `<p class="client-onboarding-lock-message" role="alert">Document records could not be loaded, so counts are unavailable. ${escapeHTML(clientDocumentLoadError)}</p>`
             );
         }
-
-        void markVisibleClientDocumentRequestsAsViewed();
 
         return;
 
