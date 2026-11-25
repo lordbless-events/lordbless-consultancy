@@ -893,9 +893,11 @@
     gap: clamp(32px, 6vw, 76px);
 }
 
+.education-hero-content { min-width: 0; }
 .education-hero-content .eyebrow { color: #e0c27a; }
 .education-hero-content h1 {
     max-width: 720px;
+    overflow-wrap: break-word;
     color: #fff;
     font-family: Georgia, "Times New Roman", serif;
     font-size: clamp(2.35rem, 5vw, 4.7rem);
@@ -919,6 +921,7 @@
     min-width: 0;
     margin: 0;
 }
+.education-hero-image picture { display: block; }
 .education-hero-image img {
     display: block;
     width: 100%;
@@ -961,6 +964,17 @@
     text-align: center;
 }
 
+/* Keep the official mark legible against the shared navy header. */
+.site-header .brand-logo {
+    display: block;
+    width: clamp(170px, 20vw, 225px);
+    max-height: 58px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    background: #fff;
+    object-fit: contain;
+}
+
 .education-pathway-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -984,6 +998,20 @@
     height: 250px;
     object-fit: cover;
 }
+.education-pathway-card-image > img { object-position: center 38%; }
+.education-image-credit {
+    margin: 0;
+    padding: 7px 13px;
+    background: #f5f3ed;
+    color: #536071;
+    font-size: 0.72rem;
+    line-height: 1.4;
+}
+.education-image-credit a { color: #173858; text-decoration: underline; text-underline-offset: 2px; }
+.education-pathway-detail { margin-top: 13px; padding-top: 12px; border-top: 1px solid rgba(7, 26, 51, 0.12); }
+.education-pathway-detail summary { color: #173858; font-weight: 700; cursor: pointer; }
+.education-pathway-detail p { margin-top: 9px; }
+.education-image-note { margin-top: 13px !important; color: #596579; font-size: 0.82rem; }
 .education-pathway-card-gallery {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1025,10 +1053,10 @@
 
 .education-service-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 18px;
 }
-.education-service-card { padding: 25px; }
+.education-service-card { padding: 23px; }
 .education-card-number {
     color: #a17d39;
     font-size: 0.8rem;
@@ -1038,10 +1066,17 @@
 .education-destinations { background: #fff; }
 .destination-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 22px;
 }
-.destination-card { padding: 22px; }
+.destination-card { display: flex; flex-direction: column; padding: 0; }
+.destination-image { width: 100%; margin: 0; }
+.destination-image img { display: block; width: 100%; height: 230px; object-fit: cover; object-position: center; }
+.destination-image figcaption { padding: 8px 12px; background: #f5f3ed; color: #536071; font-size: 0.72rem; line-height: 1.5; }
+.destination-image figcaption a { color: #173858; text-decoration: underline; text-underline-offset: 2px; }
+.destination-card-content { display: flex; flex: 1; flex-direction: column; align-items: flex-start; padding: 20px 22px 22px; }
+.destination-card-content p { margin-bottom: 18px; }
+.destination-card-content .button { margin-top: auto; }
 .destination-card > span {
     display: inline-grid;
     width: 34px;
@@ -1053,7 +1088,7 @@
     font-size: 0.74rem;
     font-weight: 800;
 }
-.education-destination-enquiry { margin: 28px 0 0; text-align: center; }
+.education-image-disclaimer { margin: -19px auto 24px; color: #596579; font-size: 0.83rem; text-align: center; }
 
 .education-process { background: #f7f7f5; }
 .education-journey-list {
@@ -1105,6 +1140,7 @@
 }
 .funding-panel > strong { color: #071a33; font-size: 1.1rem; }
 .funding-panel p { margin: 12px 0 18px; line-height: 1.65; }
+.funding-panel .button { min-height: 44px; }
 .education-faq-list { display: grid; gap: 10px; max-width: 900px; margin: 0 auto; }
 .education-faq-list details { padding: 18px 20px; border: 1px solid rgba(7, 26, 51, 0.1); border-radius: 7px; background: #fff; }
 .education-faq-list summary { color: #071a33; font-weight: 700; cursor: pointer; }
@@ -1122,14 +1158,215 @@
 .education-stories-section { padding: 60px 0; }
 .education-stories-panel { padding: 30px; border-radius: 9px; background: #f7f7f5; }
 .education-stories-panel .button { justify-self: start; }
+.education-stories-panel .button-secondary { color: #071a33; border: 1px solid #a17d39; background: #fff; }
+.education-stories-panel .button-secondary:hover { color: #fff; background: #071a33; border-color: #071a33; }
+.destination-card-content .button { max-width: 100%; }
+.education-pathway-overview a:focus-visible,
+.education-destinations a:focus-visible,
+.education-stories-panel a:focus-visible,
+.education-hero-actions a:focus-visible,
+.education-pathway-detail summary:focus-visible { outline: 3px solid #b88f42; outline-offset: 3px; }
 .education-final-actions { margin-top: 0; }
 
+/* Final page refinement: consistent cards, clear section anchors and compact learning categories. */
+.education-pathway-overview,
+.education-destinations,
+.education-services,
+.funding-section,
+.education-learning-opportunities,
+.education-faq-section,
+.education-enquiry,
+#international-learning {
+    scroll-margin-top: 96px;
+}
+
+.education-pathway-card {
+    display: flex;
+    flex-direction: column;
+}
+
+.education-pathway-card-content {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.education-pathway-card-content > .button {
+    margin-top: auto;
+}
+
+.education-pathway-card-image > img {
+    height: 245px;
+    object-position: center 40%;
+}
+
+.pathway-programme-list {
+    display: grid;
+    gap: 7px;
+    width: 100%;
+    margin: 15px 0;
+    padding: 0;
+    list-style: none;
+}
+
+.pathway-programme-list li {
+    position: relative;
+    padding-left: 18px;
+    color: #24364a;
+    line-height: 1.45;
+}
+
+.pathway-programme-list li::before {
+    position: absolute;
+    left: 0;
+    color: #a17d39;
+    content: "•";
+    font-weight: 800;
+}
+
+.pathway-detail-content { padding-top: 10px; }
+.pathway-detail-content h4 { margin: 12px 0 4px; color: #071a33; }
+.pathway-detail-content p { margin: 0; }
+
+.education-success-statement {
+    max-width: 980px;
+    margin: 0 auto 28px;
+    padding: 20px 24px;
+    border-left: 4px solid #c9a45c;
+    background: #f7f7f5;
+    color: #24364a;
+    line-height: 1.7;
+}
+
+.education-service-grid-stages .education-service-card {
+    min-height: 205px;
+}
+
+.education-consultancy-cta,
+.education-learning-service {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    margin-top: 30px;
+    padding: 22px 24px;
+    border-radius: 9px;
+    background: #071a33;
+    color: #fff;
+}
+
+.education-consultancy-cta p,
+.education-learning-service p {
+    max-width: 760px;
+    margin: 0;
+    color: rgba(255, 255, 255, 0.9);
+    line-height: 1.65;
+}
+
+.education-consultancy-copy { max-width: 760px; }
+.education-consultancy-copy .education-consultancy-paid-note { margin-top: 9px; font-size: 0.88rem; }
+
+.education-consultancy-cta .button,
+.education-learning-service .button {
+    flex: 0 0 auto;
+    color: #071a33;
+    background: #e0c27a;
+    border-color: #e0c27a;
+}
+
+.education-learning-grid-categories {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.education-learning-grid-categories .education-learning-card {
+    position: relative;
+    min-height: 122px;
+    padding: 20px 20px 18px 58px;
+    box-shadow: 0 8px 22px rgba(7, 26, 51, 0.05);
+}
+
+.education-learning-grid-categories .education-learning-card > span {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    display: grid;
+    width: 27px;
+    height: 27px;
+    place-items: center;
+    border-radius: 50%;
+    background: #f1eadb;
+    color: #775b2d;
+    font-weight: 800;
+}
+
+.education-learning-grid-categories .education-learning-card h3 {
+    margin: 3px 0 0;
+    font-size: 1rem;
+    line-height: 1.4;
+}
+
+.education-general-disclaimer {
+    padding: 20px 0 8px;
+    background: #fff;
+}
+
+.education-general-disclaimer p {
+    max-width: 980px;
+    margin: 0 auto;
+    color: #596579;
+    font-size: 0.84rem;
+    line-height: 1.6;
+}
+
+.education-photo-credits {
+    max-width: 980px;
+    margin: 12px auto 35px;
+    padding: 0 20px;
+    color: #596579;
+    font-size: 0.82rem;
+}
+
+.education-photo-credits > summary {
+    width: fit-content;
+    color: #173858;
+    cursor: pointer;
+    font-weight: 700;
+}
+
+.education-photo-credits-content {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px 24px;
+    padding-top: 12px;
+}
+
+.education-photo-credits-content p { margin: 0; }
+.education-photo-credits-content a { color: #173858; text-decoration: underline; text-underline-offset: 2px; }
+
 @media (max-width: 900px) {
-    .destination-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .education-learning-grid-categories { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .education-service-grid-stages .education-service-card { min-height: 0; }
+}
+
+@media (max-width: 700px) {
+    .education-pathway-card-image > img { height: 220px; }
+    .education-consultancy-cta,
+    .education-learning-service { align-items: stretch; flex-direction: column; }
+    .education-consultancy-cta .button,
+    .education-learning-service .button { width: 100%; white-space: normal; }
+    .education-learning-grid-categories,
+    .education-photo-credits-content { grid-template-columns: minmax(0, 1fr); }
+    .education-general-disclaimer { padding-top: 12px; }
+}
+
+@media (max-width: 900px) {
+    .education-service-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .education-journey-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 700px) {
-    .education-hero-inner { grid-template-columns: minmax(0, 1fr); }
+    .site-header .brand-logo { width: 184px; max-height: 52px; padding: 3px 6px; }
+    .education-hero-inner { grid-template-columns: minmax(0, 1fr); gap: 28px; }
     .education-hero-image { max-width: 620px; }
     .education-pathway-grid,
     .education-service-grid,
@@ -1138,14 +1375,19 @@
     .funding-layout,
     .education-quotation-layout,
     .education-stories-panel { grid-template-columns: minmax(0, 1fr); }
+    .education-service-grid { grid-template-columns: minmax(0, 1fr); }
     .education-destination-intro-card { grid-template-columns: minmax(0, 1fr); }
     .education-destination-card-mark { min-height: 120px; }
     .education-pathway-card-image > img,
     .education-pathway-card-gallery img { height: 210px; }
+    .destination-image img { height: 210px; }
     .destination-grid { grid-template-columns: minmax(0, 1fr); }
+    .education-image-disclaimer { margin: -14px auto 20px; text-align: left; }
     .education-hero-actions,
     .education-final-actions { align-items: stretch; flex-direction: column; }
     .education-hero-actions .button,
     .education-final-actions .button,
     .education-stories-panel .button { width: 100%; }
+    .destination-card-content { padding: 18px; }
+    .destination-card-content .button { width: 100%; }
 }

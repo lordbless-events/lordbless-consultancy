@@ -403,6 +403,88 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
 
+    /* =========================================================
+       EDUCATION PAGE → EXISTING ENQUIRY CONTEXT
+       ========================================================= */
+
+    const enquiryContext =
+        new URLSearchParams(window.location.search);
+
+    if (enquiryContext.get("education") === "1") {
+
+        const educationCheckbox =
+            enquiryForm.querySelector(
+                'input[name="services"][value="education"]'
+            );
+
+        if (educationCheckbox) {
+            educationCheckbox.checked = true;
+        }
+
+        const unsureCheckbox =
+            enquiryForm.querySelector(
+                'input[name="services"][value="unsure"]'
+            );
+
+        if (unsureCheckbox) {
+            unsureCheckbox.checked = false;
+        }
+
+        const destinationValues = {
+            germany: "Germany",
+            canada: "Canada",
+            usa: "USA",
+            china: "China",
+            romania: "Romania",
+            serbia: "Serbia",
+            poland: "Poland",
+            other: "Other destination"
+        };
+
+        const destinationKey =
+            (enquiryContext.get("education_destination") || "")
+                .trim()
+                .toLowerCase();
+
+        const destinationField =
+            enquiryForm.querySelector("#destination");
+
+        if (
+            destinationField &&
+            Object.prototype.hasOwnProperty.call(
+                destinationValues,
+                destinationKey
+            )
+        ) {
+            destinationField.value =
+                destinationValues[destinationKey];
+        }
+
+        const educationLevels = {
+            conference: "conference"
+        };
+
+        const educationLevelKey =
+            (enquiryContext.get("education_level") || "")
+                .trim()
+                .toLowerCase();
+
+        const educationLevelField =
+            enquiryForm.querySelector("#study-level");
+
+        if (
+            educationLevelField &&
+            Object.prototype.hasOwnProperty.call(
+                educationLevels,
+                educationLevelKey
+            )
+        ) {
+            educationLevelField.value =
+                educationLevels[educationLevelKey];
+        }
+    }
+
+
 
     /* =========================================================
        INITIAL FORM STATE
