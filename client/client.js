@@ -485,6 +485,11 @@ const CLIENT_VIEW_CONFIG = {
         "Finance"
 },
 
+    assessment: {
+        title:
+            "My Assessment"
+    },
+
     profile: {
         title:
             "My Profile"
@@ -1291,6 +1296,9 @@ function initialiseClientOnboarding() {
 
     const refresh = () => {
         renderClientOnboardingPanel();
+        if (window.LORDBLESS_CLIENT_ASSESSMENT?.refreshSummary) {
+            void window.LORDBLESS_CLIENT_ASSESSMENT.refreshSummary();
+        }
         if (document.getElementById("view-payments")?.classList.contains("active")) {
             renderClientFinance();
         }
@@ -1316,6 +1324,9 @@ function initialiseClientOnboarding() {
         clientOnboardingDataError = "";
         renderClientOnboardingPanel();
         renderClientFinance();
+        if (window.LORDBLESS_CLIENT_ASSESSMENT?.refreshSummary) {
+            void window.LORDBLESS_CLIENT_ASSESSMENT.refreshSummary();
+        }
     });
 }
 
@@ -1411,6 +1422,9 @@ async function handleClientPortalSession(session) {
         }
         clientAuthResolvedUserId = session.user.id;
         updateClientMessageBadge();
+        if (window.LORDBLESS_CLIENT_ASSESSMENT?.refreshSummary) {
+            void window.LORDBLESS_CLIENT_ASSESSMENT.refreshSummary();
+        }
 
         const clientApp =
             document.getElementById("client-portal-app");
@@ -2068,6 +2082,13 @@ function showView(
             });
         }
 
+    }
+
+    if (viewName === "assessment") {
+        const container = document.getElementById("client-assessment-container");
+        if (container && window.LORDBLESS_CLIENT_ASSESSMENT?.render) {
+            void window.LORDBLESS_CLIENT_ASSESSMENT.render(container);
+        }
     }
 
     if (

@@ -8735,6 +8735,42 @@ input[type="checkbox"]:focus-visible {
     word-break: break-word;
 }
 
+/* Assessment dashboard and questionnaire review */
+.assessment-workspace { min-width: 0; }
+.assessment-workspace .section-header { gap: 16px; }
+.assessment-stats-grid { display: grid; grid-template-columns: repeat(6, minmax(120px, 1fr)); gap: 12px; margin: 18px 0; }
+.assessment-stat-card { min-width: 0; padding: 15px; border: 1px solid #e8e5df; border-radius: 12px; background: #fff; }
+.assessment-stat-card span { display: block; color: #68717d; font-size: 11px; line-height: 1.4; }
+.assessment-stat-card strong { display: block; margin-top: 8px; color: #14243b; font-size: 24px; }
+.assessment-filters { display: grid; grid-template-columns: repeat(5, minmax(140px, 1fr)); gap: 10px; margin: 18px 0; }
+.assessment-filters label, .assessment-notes-grid label { display: grid; gap: 6px; min-width: 0; color: #596471; font-size: 12px; font-weight: 700; }
+.assessment-filters input, .assessment-filters select, .assessment-notes-grid input, .assessment-notes-grid select, .assessment-notes-grid textarea { width: 100%; min-width: 0; max-width: 100%; padding: 10px 11px; border: 1px solid #d9dce0; border-radius: 8px; color: #1d2c40; background: #fff; font: inherit; }
+.assessment-answer-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+.assessment-answer-group { min-width: 0; }
+.assessment-answer-group h4 { margin: 0 0 10px; color: #25364b; }
+.assessment-answer-row { display: grid; gap: 3px; padding: 9px 0; border-top: 1px solid #ebe9e4; }
+.assessment-answer-row span { color: #66717e; font-size: 12px; }
+.assessment-answer-row strong { overflow-wrap: anywhere; color: #25364b; font-size: 13px; }
+.assessment-notes-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
+.assessment-notes-grid textarea { resize: vertical; }
+.assessment-authorization { display: inline-flex; align-items: center; padding: 7px 10px; border-radius: 20px; background: #f7f0df; color: #785c20; font-size: 11px; font-weight: 750; }
+.assessment-authorization.is-authorized { background: #e9f3ed; color: #315b46; }
+.assessment-submission-history { margin-top: 18px; padding-top: 12px; border-top: 1px solid #e6e3dd; }
+.assessment-submission-history summary { cursor: pointer; color: #35465b; font-weight: 700; }
+.assessment-submission-version { margin-top: 14px; }
+.assessment-submission-version > strong { color: #596575; font-size: 12px; }
+.assessment-workspace .assessment-enquiry-details { overflow-wrap: anywhere; }
+
+@media (max-width: 1100px) {
+    .assessment-stats-grid { grid-template-columns: repeat(3, minmax(120px, 1fr)); }
+    .assessment-filters { grid-template-columns: repeat(3, minmax(135px, 1fr)); }
+}
+
+@media (max-width: 680px) {
+    .assessment-stats-grid, .assessment-filters, .assessment-answer-grid, .assessment-notes-grid { grid-template-columns: minmax(0, 1fr); }
+    .assessment-workspace .section-header { align-items: stretch; flex-direction: column; }
+}
+
 
 /* ============================================================
    RECEIPT DETAIL BOX

@@ -138,6 +138,15 @@
                 <button
                     type="button"
                     class="client-nav-item"
+                    data-view="assessment"
+                >
+                    <span class="nav-icon" aria-hidden="true">✓</span>
+                    <span>My Assessment</span>
+                </button>
+
+                <button
+                    type="button"
+                    class="client-nav-item"
                     data-view="documents"
                 >
 
@@ -407,6 +416,8 @@
                     aria-live="polite"
                     hidden
                 ></section>
+
+                <div id="client-assessment-overview-card"></div>
 
 
                 <!-- =============================================
@@ -940,6 +951,17 @@
 
 </section>
 
+            <!-- =================================================
+                 CLIENT ASSESSMENT VIEW
+                 ================================================= -->
+            <section
+                class="portal-view"
+                id="view-assessment"
+                data-view-panel="assessment"
+            >
+                <div id="client-assessment-container"></div>
+            </section>
+
 
             <!-- =================================================
                  PROFILE VIEW
@@ -1403,6 +1425,8 @@
 <script src="components/clientAccess.js"></script>
 
 <script src="components/clientFinance.js"></script>
+
+<script src="components/clientAssessment.js"></script>
 
 <script src="client.js"></script>
 
