@@ -252,6 +252,7 @@ const LORDBLESS_CLIENT_ACCOUNT = {
     currentTransactionId: null,
     documents: [],
     documentRequests: [],
+    documentRequirements: [],
     transactions: []
 };
 
@@ -544,6 +545,7 @@ let clientAuthLookupUserId = null;
 let clientAuthResolvedUserId = null;
 let clientJourneyLoadError = "";
 let clientDocumentLoadError = "";
+let clientDocumentRequirementLoadError = "";
 let clientDocumentViewRequestKey = "";
 let clientDocumentViewRequestPromise = null;
 let clientApplicationJourneyId = null;
@@ -568,7 +570,8 @@ function applyAuthenticatedClientRecord(client, registeredEmail = "") {
             currentTransactionId: null,
             transactions: [],
             documents: [],
-            documentRequests: []
+            documentRequests: [],
+            documentRequirements: []
         }
     );
 
@@ -817,8 +820,10 @@ async function refreshAuthenticatedClientNotifications() {
 async function loadAuthenticatedClientDocuments(clientId) {
     LORDBLESS_CLIENT_ACCOUNT.documents = [];
     LORDBLESS_CLIENT_ACCOUNT.documentRequests = [];
+    LORDBLESS_CLIENT_ACCOUNT.documentRequirements = [];
     clientDocumentViewRequestKey = "";
     clientDocumentLoadError = "";
+    clientDocumentRequirementLoadError = "";
 
     if (
         !window.LORDBLESS_DATA ||
@@ -829,11 +834,19 @@ async function loadAuthenticatedClientDocuments(clientId) {
     }
 
     const requestUserId = clientAuthLookupUserId;
+    const enquiryIds = [...new Set((LORDBLESS_CLIENT_ACCOUNT.transactions || [])
+        .map(item => item.enquiryId || item.enquiry_id)
+        .filter(Boolean))];
 
     try {
-        const [rows, requestResult] = await Promise.all([
+        const [rows, requestResult, requirementResult] = await Promise.all([
             window.LORDBLESS_DATA.getClientDocuments(clientId),
-            lordblessSupabase.from("document_requests").select("*").eq("client_id", clientId).eq("portal", true).order("created_at", { ascending: false })
+            lordblessSupabase.from("document_requests").select("*").eq("client_id", clientId).eq("portal", true).order("created_at", { ascending: false }),
+            enquiryIds.length
+                ? lordblessSupabase.from("enquiry_requirements")
+                    .select("id,enquiry_id,document_type,document_name,status,required,client_document_id")
+                    .in("enquiry_id", enquiryIds)
+                : Promise.resolve({ data: [], error: null })
         ]);
         if (requestResult.error) throw requestResult.error;
         if (
@@ -847,6 +860,12 @@ async function loadAuthenticatedClientDocuments(clientId) {
         LORDBLESS_CLIENT_ACCOUNT.documentRequests = (requestResult.data || [])
             .filter(item => item.client_id === clientId)
             .map(mapAuthenticatedClientDocumentRequest);
+        if (requirementResult.error) {
+            clientDocumentRequirementLoadError = requirementResult.error.message || "Education pathway requirements could not be loaded.";
+        } else {
+            LORDBLESS_CLIENT_ACCOUNT.documentRequirements = (requirementResult.data || [])
+                .filter(item => enquiryIds.includes(item.enquiry_id));
+        }
     } catch (error) {
         clientDocumentLoadError = error?.message || String(error);
         console.error("LORDBLESS CLIENT DOCUMENT LOAD ERROR:", error);
@@ -3309,8 +3328,16 @@ function renderDocuments() {
                 transaction,
                 documents,
                 LORDBLESS_CLIENT_ACCOUNT,
-                LORDBLESS_CLIENT_ACCOUNT.documentRequests
+                LORDBLESS_CLIENT_ACCOUNT.documentRequests,
+                LORDBLESS_CLIENT_ACCOUNT.documentRequirements
             );
+
+        if (clientDocumentRequirementLoadError) {
+            container.insertAdjacentHTML(
+                "afterbegin",
+                `<p class="client-onboarding-lock-message" role="alert">Education requirement progress is unavailable. ${escapeHTML(clientDocumentRequirementLoadError)}</p>`
+            );
+        }
 
         if (clientDocumentLoadError) {
             container.insertAdjacentHTML(

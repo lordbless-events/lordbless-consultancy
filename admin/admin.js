@@ -32,6 +32,10 @@ const state = {
 
     journeys: [],
 
+    journeyPathwaySummaries: {},
+
+    journeyPathwayLoadError: "",
+
     journeyLoadError: "",
 
     journeyAssignees: [],
@@ -3361,6 +3365,7 @@ function mapSupabaseJourney(record) {
         title: record.title || "",
         destination: record.destination || "",
         service: record.service || "",
+        pathwayCode: record.pathway_code || "",
         stage: window.LORDBLESS_JOURNEY_STATE.normalizeStage(record.stage),
         operationalStatus: window.LORDBLESS_JOURNEY_STATE.normalizeOperationalStatus(record.operational_status),
         internalAssigneeId: record.internal_assignee_id || null,
@@ -3416,6 +3421,22 @@ async function loadAdminJourneys(clientId = null) {
     state.journeyLoadError = "";
     let mapped = (data || []).map(mapSupabaseJourney);
     if (state.adminIdentity?.id !== requestUserId) return [];
+
+    state.journeyPathwayLoadError = "";
+    if (mapped.length) {
+        try {
+            const pathwayResult = await lordblessSupabase
+                .from("client_journeys")
+                .select("id,pathway_code")
+                .in("id", mapped.map(item => item.id));
+            if (state.adminIdentity?.id !== requestUserId) return [];
+            if (pathwayResult.error) throw pathwayResult.error;
+            const pathwayByJourneyId = new Map((pathwayResult.data || []).map(item => [item.id, item.pathway_code || ""]));
+            mapped = mapped.map(item => ({ ...item, pathwayCode: pathwayByJourneyId.get(item.id) || item.pathwayCode || "" }));
+        } catch (error) {
+            state.journeyPathwayLoadError = error?.message || "Pathway values could not be loaded.";
+        }
+    }
 
     if (clientId) {
         state.journeys = [
@@ -3595,13 +3616,13 @@ function getCurrentAdminDocumentRequests() {
 }
 
 
-async function loadAdminDocumentRecords() {
+async function loadAdminDocumentRecords(force = false) {
     if (isAdminDocumentLocalDevelopment()) {
         initialiseAdminDocumentData();
         return;
     }
     const user = state.adminIdentity;
-    if (!user?.id || state.adminDocumentsLoadedForUser === user.id) return;
+    if (!user?.id || (!force && state.adminDocumentsLoadedForUser === user.id)) return;
     state.adminDocumentsLoadedForUser = user.id;
     state.adminDocuments = [];
     state.adminDocumentRequests = [];
@@ -8645,6 +8666,32 @@ async function openAdminEnquiryClient(reference) {
 }
 
 
+function isEducationJourneyEnquiry(enquiry = {}) {
+    if (isAutosEnquiryRecord(enquiry)) return false;
+    const services = Array.isArray(enquiry.services)
+        ? enquiry.services
+        : [enquiry.services || enquiry.service].filter(Boolean);
+    return Boolean(enquiry.education) || services.some(value => /education|study|university/i.test(String(value || "")));
+}
+
+async function getJourneyPathwaySnapshot(enquiryId) {
+    const [requirementsResult, requestsResult] = await Promise.all([
+        lordblessSupabase.from("enquiry_requirements")
+            .select("id,status,client_document_id,enquiry_id")
+            .eq("enquiry_id", enquiryId),
+        lordblessSupabase.from("document_requests")
+            .select("id,requirement_id,enquiry_id")
+            .eq("enquiry_id", enquiryId)
+    ]);
+    if (requirementsResult.error || requestsResult.error) {
+        return { error: requirementsResult.error || requestsResult.error, requirements: [], requests: [] };
+    }
+    return {
+        requirements: requirementsResult.data || [],
+        requests: requestsResult.data || []
+    };
+}
+
 function renderAdminJourneyPanel(clientId) {
     const panel = Array.from(modalContent.querySelectorAll("[data-client-journey-panel]"))
         .find(item => item.dataset.clientId === clientId);
@@ -8652,6 +8699,7 @@ function renderAdminJourneyPanel(clientId) {
 
     const journeyState = window.LORDBLESS_JOURNEY_STATE;
     const isAutosJourneyPanel = panel.dataset.isAutos === "true";
+    const isEducationJourneyPanel = panel.dataset.isEducation === "true";
     const canWriteJourneys = hasPermission(getCurrentUser(), "journeys.write") || (isAutosJourneyPanel && hasPermission(getCurrentUser(), "autos.manage"));
     const list = panel.querySelector("[data-client-journey-list]");
     const journeys = state.journeys.filter(item => item.clientId === clientId);
@@ -8683,6 +8731,18 @@ function renderAdminJourneyPanel(clientId) {
                         ${journey.desk
                             ? `<span>Internal team: ${escapeHTML(state.adminIdentity?.desks?.find(item => item.code === journey.desk)?.name || journey.desk)}</span>`
                             : ""}
+                        ${isEducationJourneyPanel && journey.enquiryId && journey.enquiryId === panel.dataset.enquiryId && !isAutosJourneyPanel ? `
+                            <div class="client-journey-pathway" data-journey-pathway="${escapeHTML(journey.id)}">
+                                <strong>Education pathway${journey.pathwayCode ? `: ${escapeHTML((window.LORDBLESS_EDUCATION_PATHWAYS || []).find(item => item.value === journey.pathwayCode)?.label || journey.pathwayCode)}` : " not confirmed"}</strong>
+                                ${canWriteJourneys ? `<form data-confirm-journey-pathway data-journey-id="${escapeHTML(journey.id)}" data-enquiry-id="${escapeHTML(journey.enquiryId)}">
+                                    <label>Pathway<select name="pathway_code" required><option value="">Select a pathway</option>${(window.LORDBLESS_EDUCATION_PATHWAYS || []).map(item => `<option value="${escapeHTML(item.value)}" ${journey.pathwayCode === item.value ? "selected" : ""}>${escapeHTML(item.label)}</option>`).join("")}</select></label>
+                                    <button type="submit" class="button button-secondary">Confirm Pathway</button>
+                                    <p data-pathway-message role="status" aria-live="polite">${escapeHTML(state.journeyPathwaySummaries[journey.id]?.message || "")}</p>
+                                </form>` : ""}
+                                ${state.journeyPathwayLoadError && !journey.pathwayCode ? `<p role="alert">The saved pathway could not be read. Check the authenticated pathway_code column access for this Admin role. ${escapeHTML(state.journeyPathwayLoadError)}</p>` : ""}
+                            </div>
+                        ` : ""}
+                        ${isEducationJourneyPanel && (!journey.enquiryId || journey.enquiryId !== panel.dataset.enquiryId) && !isAutosJourneyPanel ? `<span role="alert">Education pathway requirements are unavailable until this journey is linked to the correct Education enquiry.</span>` : ""}
                         ${!isAutosJourneyPanel && ((journey.stage === "completed") !== (journey.operationalStatus === "completed")) ? `<span role="status">The saved journey stage and operational status do not match. Updating this record will reconcile them.</span>` : ""}
                         <span>Assigned: ${escapeHTML(formatDate(journey.createdAt))}</span>
                         <div class="client-journey-history" data-journey-history="${escapeHTML(journey.id)}" aria-live="polite">Loading journey history...</div>
@@ -8769,6 +8829,91 @@ function renderAdminJourneyPanel(clientId) {
                 if (updatedMessage) updatedMessage.textContent = "Journey update and history saved.";
             } catch (error) {
                 if (message) message.textContent = error?.message || "Unable to update journey.";
+                if (button) button.disabled = false;
+            }
+        });
+    });
+
+    list?.querySelectorAll("[data-confirm-journey-pathway]").forEach(form => {
+        if (form.dataset.bound === "true") return;
+        form.dataset.bound = "true";
+        form.addEventListener("submit", async event => {
+            event.preventDefault();
+            const button = form.querySelector('[type="submit"]');
+            const message = form.querySelector("[data-pathway-message]");
+            const pathwayCode = String(form.elements.pathway_code?.value || "").trim();
+            const pathway = (window.LORDBLESS_EDUCATION_PATHWAYS || []).find(item => item.value === pathwayCode);
+            if (!pathway) {
+                if (message) message.textContent = "Select a valid Education pathway.";
+                return;
+            }
+            if (button) button.disabled = true;
+            if (message) message.textContent = "Checking enquiry and generating document requirements…";
+            try {
+                const { data: enquiry, error: enquiryError } = await lordblessSupabase
+                    .from("enquiries")
+                    .select("*")
+                    .eq("id", form.dataset.enquiryId)
+                    .eq("client_id", clientId)
+                    .maybeSingle();
+                if (enquiryError) throw enquiryError;
+                if (!enquiry) throw new Error("This journey has no valid enquiry associated with the selected client.");
+                if (!isEducationJourneyEnquiry(enquiry)) throw new Error("Automatic pathway requirements can only be generated for a verified Education enquiry.");
+                const { data: linkedJourney, error: journeyError } = await lordblessSupabase
+                    .from("client_journeys_internal_access")
+                    .select("id,client_id,enquiry_id")
+                    .eq("id", form.dataset.journeyId)
+                    .eq("client_id", clientId)
+                    .eq("enquiry_id", enquiry.id)
+                    .maybeSingle();
+                if (journeyError) throw journeyError;
+                if (!linkedJourney) throw new Error("This Education journey is not validly linked to the selected client's enquiry.");
+
+                const before = await getJourneyPathwaySnapshot(enquiry.id);
+                const { data: rpcResult, error: rpcError } = await lordblessSupabase.rpc("generate_journey_document_requirements", {
+                    p_journey_id: form.dataset.journeyId,
+                    p_pathway_code: pathwayCode
+                });
+                if (rpcError) throw rpcError;
+
+                const after = await getJourneyPathwaySnapshot(enquiry.id);
+                const beforeRequirementIds = new Set(before.requirements.map(item => item.id));
+                const beforeRequestIds = new Set(before.requests.map(item => item.id));
+                const newRequirements = after.requirements.filter(item => !beforeRequirementIds.has(item.id));
+                const newRequests = after.requests.filter(item => !beforeRequestIds.has(item.id));
+                const reusedDocumentCount = newRequirements.filter(item =>
+                    String(item.status || "").toLowerCase() === "satisfied" && item.client_document_id
+                ).length;
+                const summaryAvailable = !before.error && !after.error;
+                const rpcSummary = rpcResult && typeof rpcResult === "object" ? rpcResult : {};
+                const getCount = (keys, fallback) => {
+                    for (const key of keys) {
+                        if (Number.isFinite(Number(rpcSummary[key]))) return Number(rpcSummary[key]);
+                    }
+                    return fallback;
+                };
+                const counts = {
+                    requests: getCount(["generated_requests", "requests_generated", "request_count"], newRequests.length),
+                    reused: getCount(["reused_documents", "documents_reused", "reused_document_count"], reusedDocumentCount),
+                    existing: getCount(["existing_requirements", "requirements_existing", "existing_requirement_count"], before.requirements.length)
+                };
+                const summaryMessage = summaryAvailable
+                    ? `Pathway confirmed. ${counts.requests} requests generated · ${counts.reused} existing documents reused · ${counts.existing} requirements already existed.`
+                    : `Pathway confirmed and generation completed. Requirement summary unavailable: ${(before.error || after.error)?.message || "permission or read error"}`;
+
+                state.journeyPathwaySummaries[form.dataset.journeyId] = { message: summaryMessage, pathwayCode };
+                const localJourney = state.journeys.find(item => item.id === form.dataset.journeyId);
+                if (localJourney) localJourney.pathwayCode = pathwayCode;
+                await loadAdminJourneys(clientId);
+                const refreshedJourney = state.journeys.find(item => item.id === form.dataset.journeyId);
+                if (refreshedJourney) refreshedJourney.pathwayCode = pathwayCode;
+                await loadAdminDocumentRecords(true);
+                if (state.currentView === "documents") await renderAdminDocuments();
+                renderAdminJourneyPanel(clientId);
+                const updatedMessage = list?.querySelector(`[data-confirm-journey-pathway][data-journey-id="${CSS.escape(form.dataset.journeyId)}"] [data-pathway-message]`);
+                if (updatedMessage) updatedMessage.textContent = summaryMessage;
+            } catch (error) {
+                if (message) message.textContent = error?.message || "Pathway confirmation failed.";
                 if (button) button.disabled = false;
             }
         });

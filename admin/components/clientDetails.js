@@ -3,6 +3,17 @@
 ========================================= */
 
 (function () {
+    window.LORDBLESS_EDUCATION_PATHWAYS = window.LORDBLESS_EDUCATION_PATHWAYS || [
+        { value: "bachelors", label: "Bachelor's Degree" },
+        { value: "masters", label: "Master's Degree" },
+        { value: "phd", label: "PhD" },
+        { value: "general_ausbildung", label: "General Ausbildung" },
+        { value: "nursing_ausbildung", label: "Nursing Ausbildung" },
+        { value: "specialist_healthcare", label: "Specialist Healthcare Education" },
+        { value: "language_preparation", label: "Language and Academic Preparation" },
+        { value: "conference_cpd", label: "International Conferences and CPD" }
+    ];
+
     function escapeClientDetails(value) {
         return String(value ?? "")
             .replace(/&/g, "&amp;")
@@ -64,6 +75,15 @@
             enquiry.businessType
         ].map(textValue).join(" ").toLowerCase();
         return identity.includes("autos") || identity.includes("vehicle sourcing");
+    }
+
+    function isEducationEnquiry(enquiry = {}) {
+        if (isAutosEnquiry(enquiry)) return false;
+        const services = Array.isArray(enquiry.services)
+            ? enquiry.services
+            : [enquiry.services || enquiry.service].filter(Boolean);
+        const identity = services.map(textValue).join(" ").toLowerCase();
+        return Boolean(enquiry.education) || /education|study|university/.test(identity);
     }
 
     function serviceSections(enquiry) {
@@ -414,13 +434,14 @@
         const autosJourney = isAutosEnquiry(model.enquiry || {}) || journeys.some(journey =>
             isAutosEnquiry({ service: journey.service, businessType: journey.journeyType, title: journey.title })
         );
+        const educationJourney = isEducationEnquiry(model.enquiry || {});
         const initialStages = autosJourney
             ? window.LORDBLESS_JOURNEY_STATE.autosStages
             : window.LORDBLESS_JOURNEY_STATE.stages;
 
         if (!canWrite) {
             return `
-                <details class="client-detail-accordion full-width client-journeys-card" data-client-journey-panel data-client-id="${clientId}" data-enquiry-id="${enquiryId}" data-is-autos="${autosJourney ? "true" : "false"}">
+                <details class="client-detail-accordion full-width client-journeys-card" data-client-journey-panel data-client-id="${clientId}" data-enquiry-id="${enquiryId}" data-is-autos="${autosJourney ? "true" : "false"}" data-is-education="${educationJourney ? "true" : "false"}">
                     <summary><span>${autosJourney ? "AUTOS Sourcing Journey" : "Journey Management"}</span><strong>${journeys.length} assigned</strong></summary>
                     <div class="client-detail-accordion-content"><div data-client-journey-list>${journeys.length ? "" : "<p>No journeys have been assigned to this client.</p>"}</div></div>
                 </details>
@@ -428,7 +449,7 @@
         }
 
         return `
-            <details class="client-detail-accordion full-width client-journeys-card" data-client-journey-panel data-client-id="${clientId}" data-enquiry-id="${enquiryId}" data-is-autos="${autosJourney ? "true" : "false"}">
+            <details class="client-detail-accordion full-width client-journeys-card" data-client-journey-panel data-client-id="${clientId}" data-enquiry-id="${enquiryId}" data-is-autos="${autosJourney ? "true" : "false"}" data-is-education="${educationJourney ? "true" : "false"}">
                 <summary><span>${autosJourney ? "AUTOS Sourcing Journey" : "Journey Management"}</span></summary>
                 <div class="client-detail-accordion-content">
                     <h3>${autosJourney ? "Vehicle sourcing progress" : "Assigned journeys"}</h3>

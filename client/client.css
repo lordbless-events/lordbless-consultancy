@@ -5792,6 +5792,66 @@ input:focus-visible {
    DOCUMENT REQUESTS — PREMIUM UI
    ========================================================= */
 
+.document-pathway-requirements {
+    margin: 18px 0;
+    padding: 18px;
+    border: 1px solid var(--portal-border);
+    border-radius: 14px;
+    background: var(--portal-surface);
+}
+
+.document-pathway-requirements .document-section-heading {
+    align-items: center;
+}
+
+.document-pathway-count {
+    color: var(--portal-accent);
+    white-space: nowrap;
+}
+
+.document-pathway-completed-list {
+    display: grid;
+    gap: 8px;
+    margin: 14px 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.document-pathway-completed-list li {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 9px;
+    background: var(--portal-success-bg);
+    color: var(--portal-success);
+}
+
+.document-pathway-completed-list li span {
+    text-align: right;
+}
+
+.document-pathway-hint {
+    margin: 12px 0 0;
+    color: var(--portal-muted);
+}
+
+@media (max-width: 640px) {
+    .document-pathway-requirements {
+        padding: 14px;
+    }
+
+    .document-pathway-requirements .document-section-heading,
+    .document-pathway-completed-list li {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .document-pathway-completed-list li span {
+        text-align: left;
+    }
+}
+
 .document-request-list {
     display: flex;
     flex-direction: column;

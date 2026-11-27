@@ -1311,7 +1311,8 @@ function renderDocumentCentre(
     transaction,
     clientDocuments = [],
     client = null,
-    persistedRequests = null
+    persistedRequests = null,
+    pathwayRequirements = []
 ) {
 
     if (
@@ -1344,6 +1345,11 @@ function renderDocumentCentre(
             documents
         );
 
+    const enquiryId = transaction?.enquiryId || transaction?.enquiry_id || null;
+    const requirements = Array.isArray(pathwayRequirements)
+        ? pathwayRequirements.filter(item => !enquiryId || item.enquiry_id === enquiryId)
+        : [];
+
 
     container.innerHTML = `
 
@@ -1364,6 +1370,8 @@ function renderDocumentCentre(
                 documents,
                 requestSummary
             )}
+
+            ${renderPathwayRequirementsSummary(requirements, documents)}
 
 
             ${renderPermanentLibrarySection(
@@ -1386,6 +1394,34 @@ function renderDocumentCentre(
         documents
     );
 
+}
+
+
+function renderPathwayRequirementsSummary(requirements, documents) {
+    if (!requirements.length) return "";
+    const completed = requirements.filter(item => String(item.status || "").toLowerCase() === "satisfied");
+    const percent = Math.round((completed.length / requirements.length) * 100);
+    const completedRows = completed.map(item => {
+        const linkedDocument = documents.find(document => document.id === item.client_document_id);
+        const label = item.document_name || item.document_type || "Required document";
+        return `<li><strong>${escapeDocumentHTML(label)}</strong><span>${escapeDocumentHTML(linkedDocument?.name || linkedDocument?.document_name || "Completed · document on file")}</span></li>`;
+    }).join("");
+    return `
+        <section class="document-pathway-requirements" aria-labelledby="document-pathway-requirements-title">
+            <div class="document-section-heading">
+                <div>
+                    <p class="portal-eyebrow">EDUCATION PATHWAY</p>
+                    <h3 id="document-pathway-requirements-title">Document completion</h3>
+                    <p>Progress includes documents already held in your client library.</p>
+                </div>
+                <strong class="document-pathway-count">${completed.length}/${requirements.length} complete</strong>
+            </div>
+            <div class="document-request-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}" aria-label="Education document requirements completed">
+                <div class="document-request-progress-fill" style="width:${percent}%"></div>
+            </div>
+            ${completedRows ? `<ul class="document-pathway-completed-list">${completedRows}</ul>` : `<p class="document-pathway-hint">Your completed or reused documents will be shown here. Outstanding requests appear above.</p>`}
+        </section>
+    `;
 }
 
 
