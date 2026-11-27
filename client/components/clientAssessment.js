@@ -92,7 +92,41 @@
     }
     function rpc(name, args) { return lordblessSupabase.rpc(name, args); }
     function selectedEnquiry() { return (state.context?.enquiries || []).find(item => String(item.id) === String(state.enquiryId)) || null; }
-    function statusOf(item) { return item?.assessment?.status || (item?.payment_authorized ? "ready_to_begin" : "awaiting_payment"); }
+    function isEducation(item) { return item?.is_education ?? Boolean(item?.enquiry?.education); }
+    function statusOf(item) {
+        if (!isEducation(item)) return "not_applicable";
+        return item?.assessment?.status || (item?.payment_authorized ? "ready_to_begin" : "awaiting_payment");
+    }
+    function decisionLabel(value) {
+        return ({ approved: "Approved", on_hold: "On Hold", rejected: "Rejected" })[value] || "Awaiting decision";
+    }
+    function serviceLabel(item) {
+        const values = Array.isArray(item?.services) && item.services.length ? item.services : [item?.service];
+        const labels = values.filter(Boolean).map(value => {
+            const key = String(value).toLowerCase().replace(/[ _-]+/g, " ");
+            if (/education|study|university/.test(key)) return "Global Education";
+            if (/career|employment|work|job/.test(key)) return "Global Careers";
+            if (/travel|tourism/.test(key)) return "Travel Desk";
+            if (/business|trade/.test(key)) return "Business Desk";
+            if (/mobility|settlement|migration/.test(key)) return "Global Settlement";
+            return String(value).replace(/[ _-]+/g, " ");
+        });
+        return [...new Set(labels)].join(", ") || (isEducation(item) ? "Global Education" : "Consultancy Service");
+    }
+    function serviceCodes(item) {
+        const values = Array.isArray(item?.services) && item.services.length ? item.services : [item?.service];
+        const codes = [...new Set(values.filter(Boolean).map(String))];
+        if (codes.length) return codes;
+        const inferred = ["education", "careers", "travel", "business", "mobility", "general"]
+            .find(key => item?.enquiry?.[key] && typeof item.enquiry[key] === "object");
+        return [inferred || (isEducation(item) ? "education" : "general")];
+    }
+    function professionalDecision(item, serviceCode) {
+        const decisions = item?.professional_decisions || (item?.professional_decision
+            ? [{ service_code: serviceCodes(item)[0], ...item.professional_decision }]
+            : []);
+        return decisions.find(entry => entry.service_code === serviceCode) || null;
+    }
     function paymentLink() { document.querySelector('[data-view="payments"]')?.click(); }
 
     function prefill(item) {
@@ -125,12 +159,21 @@
         }
         const enquiries = state.context?.enquiries || [];
         if (!enquiries.length) {
-            host.innerHTML = `<section class="client-assessment-summary"><div><p class="portal-eyebrow">YOUR ASSESSMENT</p><h3>Education assessment</h3><p>${escape(state.context?.error || "An Education enquiry will appear here when one is linked to your account.")}</p></div></section>`;
+            host.innerHTML = `<section class="client-assessment-summary"><div><p class="portal-eyebrow">YOUR ASSESSMENT</p><h3>Assessment profile</h3><p>${escape(state.context?.error || "Your linked service enquiries will appear here.")}</p></div></section>`;
             return;
         }
-        const outstanding = enquiries.find(item => !["assessment_completed", "submitted", "under_review"].includes(statusOf(item))) || enquiries[0];
+        const outstanding = enquiries.find(item => isEducation(item) && !["assessment_completed", "submitted", "under_review"].includes(statusOf(item)))
+            || enquiries.find(item => isEducation(item)) || enquiries[0];
         const status = statusOf(outstanding);
-        host.innerHTML = `<section class="client-assessment-summary"><div><p class="portal-eyebrow">YOUR ASSESSMENT</p><h3>${escape(enquiries.length > 1 ? `${enquiries.length} Education assessments` : "Education assessment")}</h3><p>${escape(statusLabels[status] || "Ready to Begin")} · ${escape(outstanding.enquiry?.education?.destination || "Education pathway")}</p></div><button type="button" class="primary-button" data-view-link="assessment">${status === "awaiting_payment" ? "View payment request" : ["in_progress", "clarification_required"].includes(status) ? "Continue assessment" : ["submitted", "under_review", "assessment_completed"].includes(status) ? "View assessment" : "Start assessment"}</button></section>`;
+        const educationCount = enquiries.filter(isEducation).length;
+        const countLabel = educationCount ? `${educationCount} Education ${educationCount === 1 ? "assessment" : "assessments"}` : "Service assessment profile";
+        const description = isEducation(outstanding)
+            ? `${statusLabels[status] || "Ready to Begin"} · ${outstanding.enquiry?.education?.destination || "Education pathway"}`
+            : `${decisionLabel(professionalDecision(outstanding, serviceCodes(outstanding)[0])?.decision)} · ${serviceLabel(outstanding)}`;
+        const action = isEducation(outstanding)
+            ? `<button type="button" class="primary-button" data-view-link="assessment">${status === "awaiting_payment" ? "View payment request" : ["in_progress", "clarification_required"].includes(status) ? "Continue assessment" : ["submitted", "under_review", "assessment_completed"].includes(status) ? "View assessment" : "Start assessment"}</button>`
+            : `<button type="button" class="primary-button" data-view-link="assessment">View assessment profile</button>`;
+        host.innerHTML = `<section class="client-assessment-summary"><div><p class="portal-eyebrow">YOUR ASSESSMENT</p><h3>${escape(countLabel)}</h3><p>${escape(description)}</p></div>${action}</section>`;
         host.querySelector("[data-view-link='assessment']")?.addEventListener("click", () => document.querySelector('[data-view="assessment"]')?.click());
     }
 
@@ -150,10 +193,21 @@
         const items = state.context?.enquiries || [];
         const cards = items.map(item => {
             const status = statusOf(item);
+            if (!isEducation(item)) {
+                const decisions = serviceCodes(item).map(code => {
+                    const decision = professionalDecision(item, code);
+                    return `<p><strong>${escape(serviceLabel({ services: [code] }))} decision:</strong> ${escape(decisionLabel(decision?.decision))}${decision?.reviewed_at ? ` · ${escape(formatDate(decision.reviewed_at))}` : ""}</p>`;
+                }).join("");
+                return `<article class="client-assessment-engagement"><div><span class="client-assessment-status">Questionnaire: Not Applicable</span><h3>${escape(serviceLabel(item))}</h3><p>${escape(item.destination || item.enquiry?.details?.destination || "Service enquiry")} · ${escape(item.reference || "Enquiry")}</p>${decisions}<small>Your consultant will update this profile as reviews are completed.</small></div></article>`;
+            }
             const action = status === "awaiting_payment" ? "View Payment Request" : status === "ready_to_begin" ? "Start Assessment" : status === "in_progress" ? "Continue Assessment" : status === "clarification_required" ? "Update Assessment" : "View Assessment";
-            return `<article class="client-assessment-engagement"><div><span class="client-assessment-status">${escape(statusLabels[status] || status)}</span><h3>${escape(item.enquiry?.education?.firstProgramme || item.enquiry?.education?.studyLevel || "Education pathway")}</h3><p>${escape(item.enquiry?.education?.destination || "Destination not specified")} · ${escape(item.reference || "Enquiry")}</p><small>Updated ${escape(formatDate(item.assessment?.updated_at || item.assessment?.submitted_at || item.created_at))}</small></div><button type="button" class="primary-button" data-assessment-open="${escape(item.id)}">${escape(action)}</button></article>`;
+            const decisions = serviceCodes(item).map(code => {
+                const decision = professionalDecision(item, code);
+                return `<p><strong>${escape(serviceLabel({ services: [code] }))} decision:</strong> ${escape(decisionLabel(decision?.decision))}${decision?.reviewed_at ? ` · ${escape(formatDate(decision.reviewed_at))}` : ""}</p>`;
+            }).join("");
+            return `<article class="client-assessment-engagement"><div><span class="client-assessment-status">${escape(statusLabels[status] || status)}</span><h3>${escape(item.enquiry?.education?.firstProgramme || item.enquiry?.education?.studyLevel || "Education pathway")}</h3><p>${escape(item.enquiry?.education?.destination || item.destination || "Destination not specified")} · ${escape(item.reference || "Enquiry")}</p>${decisions}<small>Updated ${escape(formatDate(item.assessment?.updated_at || item.assessment?.submitted_at || item.created_at))}</small></div><button type="button" class="primary-button" data-assessment-open="${escape(item.id)}">${escape(action)}</button></article>`;
         }).join("");
-        return `<section class="client-assessment-panel"><div class="client-assessment-heading"><div><p class="portal-eyebrow">CLIENT PORTAL</p><h2>My Assessment</h2><p>Help us prepare for your consultation by answering a few short questions about your education goals and financial readiness. Our consultancy team will handle the detailed research, document assessment and application preparation on your behalf.</p></div></div>${renderProfile(client)}<h3>Your Education Assessments</h3>${cards || '<div class="empty-state-card"><h3>No Education assessment is linked yet</h3><p>If you expected one here, please contact your LORDBLESS consultant.</p></div>'}</section>`;
+        return `<section class="client-assessment-panel"><div class="client-assessment-heading"><div><p class="portal-eyebrow">CLIENT PORTAL</p><h2>My Assessment</h2><p>Your assessment profile shows your linked services and applicable review progress. Where a questionnaire is available, your answers help our consultancy team prepare for your consultation.</p></div></div>${renderProfile(client)}<h3>Your Service Assessments</h3>${cards || '<div class="empty-state-card"><h3>No assessment is linked yet</h3><p>If you expected one here, please contact your LORDBLESS consultant.</p></div>'}</section>`;
     }
 
     function control(field, value, section) {

@@ -8738,13 +8738,24 @@ input[type="checkbox"]:focus-visible {
 /* Assessment dashboard and questionnaire review */
 .assessment-workspace { min-width: 0; }
 .assessment-workspace .section-header { gap: 16px; }
-.assessment-stats-grid { display: grid; grid-template-columns: repeat(6, minmax(120px, 1fr)); gap: 12px; margin: 18px 0; }
-.assessment-stat-card { min-width: 0; padding: 15px; border: 1px solid #e8e5df; border-radius: 12px; background: #fff; }
+.assessment-stats-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin: 18px 0; }
+.assessment-stat-card { display: block; width: 100%; min-width: 0; padding: 15px; border: 1px solid #e8e5df; border-radius: 12px; background: #fff; color: inherit; text-align: left; cursor: pointer; transition: border-color .18s ease, box-shadow .18s ease, background .18s ease; }
+.assessment-stat-card:hover, .assessment-stat-card:focus-visible { border-color: #b28a45; box-shadow: 0 0 0 3px rgba(178, 138, 69, .14); outline: none; }
+.assessment-stat-card.is-active { border-color: #14243b; background: #f5f2eb; }
 .assessment-stat-card span { display: block; color: #68717d; font-size: 11px; line-height: 1.4; }
 .assessment-stat-card strong { display: block; margin-top: 8px; color: #14243b; font-size: 24px; }
 .assessment-filters { display: grid; grid-template-columns: repeat(5, minmax(140px, 1fr)); gap: 10px; margin: 18px 0; }
-.assessment-filters label, .assessment-notes-grid label { display: grid; gap: 6px; min-width: 0; color: #596471; font-size: 12px; font-weight: 700; }
-.assessment-filters input, .assessment-filters select, .assessment-notes-grid input, .assessment-notes-grid select, .assessment-notes-grid textarea { width: 100%; min-width: 0; max-width: 100%; padding: 10px 11px; border: 1px solid #d9dce0; border-radius: 8px; color: #1d2c40; background: #fff; font: inherit; }
+.assessment-filters label, .assessment-notes-grid label, .assessment-decision-service, .assessment-workspace [data-assessment-form] > label { display: grid; gap: 6px; min-width: 0; color: #596471; font-size: 12px; font-weight: 700; }
+.assessment-filters input, .assessment-filters select, .assessment-notes-grid input, .assessment-notes-grid select, .assessment-notes-grid textarea, .assessment-decision-service select, .assessment-workspace [data-assessment-form] textarea { width: 100%; min-width: 0; max-width: 100%; padding: 10px 11px; border: 1px solid #d9dce0; border-radius: 8px; color: #1d2c40; background: #fff; font: inherit; }
+.assessment-workspace [data-assessment-form] { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.assessment-workspace [data-assessment-form] textarea { min-height: 110px; resize: vertical; }
+.assessment-workspace [data-assessment-form] > .section-subtitle, .assessment-workspace [data-assessment-form] > .assessment-decision-actions { grid-column: 1 / -1; }
+.assessment-client-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.assessment-client-summary-grid > div { display: grid; align-content: start; gap: 5px; min-width: 0; padding: 12px; border: 1px solid #ece9e2; border-radius: 10px; }
+.assessment-client-summary-grid span { color: #68717d; font-size: 11px; }
+.assessment-client-summary-grid strong { color: #25364b; font-size: 13px; overflow-wrap: anywhere; }
+.assessment-original-enquiries { margin: 20px 0; }
+.assessment-original-enquiries > h3 { margin-bottom: 10px; }
 .assessment-answer-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
 .assessment-answer-group { min-width: 0; }
 .assessment-answer-group h4 { margin: 0 0 10px; color: #25364b; }
@@ -8764,10 +8775,12 @@ input[type="checkbox"]:focus-visible {
 @media (max-width: 1100px) {
     .assessment-stats-grid { grid-template-columns: repeat(3, minmax(120px, 1fr)); }
     .assessment-filters { grid-template-columns: repeat(3, minmax(135px, 1fr)); }
+    .assessment-client-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 680px) {
-    .assessment-stats-grid, .assessment-filters, .assessment-answer-grid, .assessment-notes-grid { grid-template-columns: minmax(0, 1fr); }
+    .assessment-stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .assessment-filters, .assessment-answer-grid, .assessment-notes-grid, .assessment-client-summary-grid, .assessment-workspace [data-assessment-form] { grid-template-columns: minmax(0, 1fr); }
     .assessment-workspace .section-header { align-items: stretch; flex-direction: column; }
 }
 
