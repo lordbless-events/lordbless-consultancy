@@ -66,16 +66,16 @@
     align-items: center;
     gap: 38px;
     color: #fff;
-    border: 1px solid rgba(201,164,92,.35);
+    border: 1px solid rgba(244,106,37,.3);
     border-radius: 18px;
-    background: linear-gradient(120deg, #020d1f, #0a1f3a 75%, #102744);
+    background: #006B54;
 }
 
-.autos-home-feature h2 { margin-top: 8px; color: #fff; font: 600 clamp(2rem, 4vw, 3rem)/1.08 Georgia, "Times New Roman", serif; }
-.autos-home-tagline { margin-top: 8px; color: #e8cc88; font-size: 1.1rem; font-weight: 700; }
+.autos-home-feature h2 { margin-top: 8px; color: #fff; font: 700 clamp(1.5rem, 2vw, 2rem)/1.12 Montserrat, "Open Sans", sans-serif; }
+.autos-home-tagline { margin-top: 8px; color: #FCF7EF; font-size: 1rem; font-weight: 700; }
 .autos-home-feature-copy > p:not(.autos-eyebrow, .autos-home-tagline) { max-width: 650px; margin-top: 14px; color: rgba(255,255,255,.78); }
 .autos-home-feature .button { margin-top: 22px; }
-.autos-home-feature-art { color: #d9b96e; text-align: center; }
+.autos-home-feature-art { color: #FCF7EF; text-align: center; }
 .autos-home-feature-art > span { display: block; font: 600 clamp(2rem, 4vw, 3rem)/1 Georgia, "Times New Roman", serif; letter-spacing: .12em; }
 .autos-home-feature-art svg { width: min(100%, 330px); margin: 4px auto; }
 .autos-home-feature-art small { color: rgba(255,255,255,.65); font-size: .65rem; letter-spacing: .12em; }

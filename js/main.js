@@ -71,6 +71,11 @@ document.addEventListener("DOMContentLoaded", () => {
         "#lordbless-enquiry-form"
     );
 
+    if (!enquiryForm && window.location.hash === "#journey") {
+        window.location.replace("enquiry.html" + window.location.search);
+        return;
+    }
+
     if (!enquiryForm) {
         return;
     }
@@ -481,6 +486,19 @@ document.addEventListener("DOMContentLoaded", () => {
         ) {
             educationLevelField.value =
                 educationLevels[educationLevelKey];
+        }
+    }
+
+    const requestedService = (enquiryContext.get("service") || "").trim().toLowerCase();
+    const supportedServices = ["education", "careers", "travel", "business", "mobility", "unsure"];
+    if (supportedServices.includes(requestedService)) {
+        const requestedCheckbox = enquiryForm.querySelector(
+            `input[name="services"][value="${requestedService}"]`
+        );
+        if (requestedCheckbox) {
+            requestedCheckbox.checked = true;
+            const unsureCheckbox = enquiryForm.querySelector('input[name="services"][value="unsure"]');
+            if (requestedService !== "unsure" && unsureCheckbox) unsureCheckbox.checked = false;
         }
     }
 
