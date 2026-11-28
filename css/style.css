@@ -3416,3 +3416,76 @@ body{font-family:var(--font-body);background:var(--brand-ivory);color:var(--bran
     .signature-commercial-grid > .signature-resources { grid-template-columns: minmax(0,1fr); }
     .signature-commercial-grid > .signature-resources .signature-resource-art { width: 100%; }
 }
+
+/* Phase 2F: focused mobile homepage refinements */
+@media (max-width: 800px) {
+    .mobile-menu-button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 0; border: 1px solid rgba(0,107,84,.22); border-radius: 8px; background: transparent; }
+    .mobile-menu-button span { display: block; width: 21px; height: 2px; flex: 0 0 2px; margin: 0; border-radius: 2px; background: var(--brand-emerald); }
+    .main-navigation.is-open { z-index: 20; background: var(--brand-ivory); }
+    .main-navigation.is-open > a:not(.header-portal-button) { color: var(--brand-graphite); }
+    .signature-destinations { max-width: 100%; overflow: hidden; }
+    .signature-destinations > .container { min-width: 0; max-width: 100%; }
+    .signature-destinations .destination-list { min-width: 0; max-width: 100%; width: 100%; flex: 1 1 auto; overflow-x: auto; overflow-y: hidden; overscroll-behavior-inline: contain; touch-action: pan-x; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+}
+@media (max-width: 560px) {
+    .signature-hero-inner { width: calc(100% - 32px); padding: 10px 0 0; }
+    .signature-hero-copy { width: 100%; max-width: none; padding: 4px 0 8px; }
+    .signature-hero .eyebrow { margin-bottom: 6px; }
+    .signature-hero h1 { max-width: none; font-size: clamp(30px, 8vw, 34px); line-height: 1.08; }
+    .signature-hero h1 span { white-space: normal; }
+    .signature-hero .hero-description { margin: 8px 0; font-size: 14px; line-height: 1.4; }
+    .signature-hero .hero-actions { gap: 8px; margin: 8px 0; }
+    .signature-hero .hero-actions .button { display: flex; width: 100%; min-height: 44px; align-items: center; justify-content: center; padding: 0 12px; font-size: 14px; white-space: nowrap; }
+    .signature-hero-photo { height: 185px; }
+    .signature-hero-photo::after { background: linear-gradient(180deg, rgba(252,247,239,.32) 0%, rgba(252,247,239,.12) 10%, rgba(252,247,239,0) 27%); }
+    .signature-service-grid { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 9px; }
+    .signature-service-card { min-height: 196px; padding: 14px 9px; }
+    .signature-service-card > svg { width: 38px; height: 38px; margin-bottom: 4px; }
+    .signature-service-card h3 { font-size: 17px; }
+    .signature-service-card .service-description { margin-top: 3px; font-size: 12px; }
+    .signature-service-card .service-offerings { font-size: 11px; }
+    .signature-service-card > a::after { content: none; }
+    .signature-service-card > a > .service-card-arrow { position: absolute; right: 11px; bottom: 9px; display: block; width: 22px; height: 22px; margin: 0; fill: none; stroke: var(--brand-orange); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+    .signature-commercial-grid { gap: 8px; padding: 8px 0 14px; }
+    .signature-commercial-grid > .autos-home-feature { min-height: 0; gap: 8px; padding: 12px; }
+    .signature-commercial-grid > .autos-home-feature .autos-home-feature-copy { order: -1; }
+    .signature-commercial-grid > .autos-home-feature .autos-home-feature-art { order: 0; max-width: none; margin: 0; }
+    .signature-commercial-grid > .autos-home-feature h2 { margin-top: 3px; font-size: 23px; }
+    .signature-commercial-grid > .autos-home-feature .autos-home-tagline { margin-top: 3px; }
+    .signature-commercial-grid > .autos-home-feature .button { min-height: 40px; margin-top: 7px; }
+    .signature-commercial-grid .autos-home-feature-art .autos-showcase-slide { min-height: 0; grid-template-columns: minmax(0,1fr); gap: 6px; }
+    .signature-commercial-grid .autos-home-feature-art .autos-showcase-photo { height: 136px; }
+    .signature-commercial-grid .autos-home-feature-art .autos-showcase-copy h3 { margin-top: 3px; }
+    .signature-commercial-grid .autos-home-feature-art .autos-showcase-copy p { margin-top: 3px; }
+    .signature-commercial-grid .autos-home-feature-art .autos-showcase-copy button { min-height: 36px; margin-top: 6px; padding: 8px 12px; }
+    .signature-commercial-grid .autos-home-feature-art .autos-showcase-controls { gap: 8px; margin-top: 7px; }
+    .signature-commercial-grid .autos-home-feature-art .autos-showcase-controls > button { width: 30px; height: 30px; font-size: 1.1rem; }
+    .signature-commercial-grid .autos-home-feature-art .autos-showcase-controls > span { gap: 7px; }
+    .signature-commercial-grid > .signature-resources { min-height: 0; gap: 8px; padding: 12px; }
+    .signature-commercial-grid > .signature-resources .signature-resource-art { width: 100%; }
+    .signature-resource-copy h2 { font-size: 21px; }
+    .signature-resource-copy > p:not(.eyebrow) { margin-top: 5px; line-height: 1.4; }
+    .signature-resource-copy .button-secondary { width: 100%; min-height: 44px; justify-content: center; margin-top: 6px; }
+    .spotlight-section { padding: 14px 0 18px; }
+    .spotlight-section .section-heading { margin-bottom: 5px; }
+    .spotlight-section .section-heading h2 { font-size: 24px; }
+    .spotlight-section .section-heading > p:last-child { margin-top: 4px; font-size: 13px; }
+    .spotlight-controls { gap: 5px; margin-bottom: 6px; padding-right: 52px; }
+    .spotlight-controls button { min-width: 32px; min-height: 32px; padding-inline: 6px; font-size: 12px; }
+    .spotlight-controls [data-spotlight-toggle] { padding-inline: 7px; font-size: 11px; }
+    .spotlight-controls > a { margin-left: 3px; font-size: 11px; }
+    .signature-how { padding: 22px 0; }
+    .signature-how ol { margin-left: 12px; }
+    .signature-how li { padding-left: 42px; }
+    .signature-how li::before { left: -17px; }
+    .lordbless-floating-whatsapp { right: 14px; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); width: 44px; height: 44px; }
+    .lordbless-floating-whatsapp .lordbless-whatsapp-icon { width: 25px; height: 25px; }
+    .lordbless-floating-whatsapp .lordbless-whatsapp-icon svg { width: 24px; height: 24px; }
+}
+@media (max-width: 380px) {
+    .signature-hero .hero-actions .button { font-size: 13px; }
+    .signature-service-grid { gap: 8px; }
+    .signature-service-card { padding-inline: 7px; }
+    .signature-service-card .service-offerings { font-size: 10.5px; }
+    .spotlight-controls { padding-right: 48px; }
+}
